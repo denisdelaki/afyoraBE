@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 from pathlib import Path
+from decouple import config  
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -37,19 +38,57 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    
+     # Third-party apps
+    'rest_framework',                # Django REST Framework
+    'corsheaders',                   # Allow cross-origin requests from Angular
+    'rest_framework_simplejwt',      # JWT authentication
+    'django_filters',                # Advanced filtering
+    'django_extensions',             # Shell plus, other utilities
+    
+    # Our apps
+    'core',                          # Authentication, users, facilities
+    'patients',                      # Patient management
+    'appointments',                  # Appointment scheduling
+    'billing',                       # Invoices & payments
+    'pharmacy',                      # Prescriptions & drugs
+    'laboratory',                    # Lab tests & results
+    'radiology',                     # Imaging & reports
+    'inventory',                     # Stock management
+    'employees',                     # Staff management
+    'reports',                       # Analytics & reports
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware',
+    'corsheaders.middleware.CorsMiddleware',          # CORS - must be high!
     'django.middleware.common.CommonMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',
+    'django.middleware.csrf.CsrfViewMiddleware',      # CSRF protection
+    'django.contrib.sessions.middleware.SessionMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
 ROOT_URLCONF = 'afyoraBE.urls'
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:4200",      # Angular dev server
+    "http://localhost:3000",      # Alternative frontend
+    "http://localhost:8000",      # Django dev server
+       # Production domain
+    
+]
+
+CORS_ALLOW_CREDENTIALS = True
+
+CORS_ALLOW_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
+]
 
 TEMPLATES = [
     {
@@ -79,7 +118,11 @@ DATABASES = {
     }
 }
 
+AUTH_USER_MODEL = 'core.User'
 
+# ============================================================================
+# REST FRAMEWORK CONFIGURATION
+# ============================================================================
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
 
@@ -98,6 +141,89 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
+# How the API should behave
+ 
+REST_FRAMEWORK = {
+    # Authentication methods
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        # JWT tokens in Authorization header: Bearer <token>
+        'rest_framework.authentication.SessionAuthentication',
+        # Session cookies (useful for development)
+    ),
+    
+    # Who can access by default (can override per view)
+    'DEFAULT_PERMISSION_CLASSES': (
+        'rest_framework.permissions.IsAuthenticated',
+        # All endpoints require login by default
+    ),
+    
+    # Filtering & searching
+    'DEFAULT_FILTER_BACKENDS': (
+        'django_filters.rest_framework.DjangoFilterBackend',
+        # /api/patients/?status=active
+        'rest_framework.filters.SearchFilter',
+        # /api/patients/?search=John
+        'rest_framework.filters.OrderingFilter',
+        # /api/patients/?ordering=-created_at
+    ),
+    
+    # Pagination
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 20,
+    # /api/patients/?page=2 shows 20 results per page
+    
+    # Response format
+    'DEFAULT_RENDERER_CLASSES': (
+        'rest_framework.renderers.JSONRenderer',
+        'rest_framework.renderers.BrowsableAPIRenderer',
+        # Browsable API (nice HTML interface for testing)
+    ),
+    
+    # Date/time format
+    'DATETIME_FORMAT': '%Y-%m-%dT%H:%M:%S.%fZ',
+    'DATE_FORMAT': '%Y-%m-%d',
+    
+    # Strict mode
+    'STRICT_RENDERING': True,
+}
+
+
+# ============================================================================
+# JWT CONFIGURATION
+# ============================================================================
+# JSON Web Tokens for stateless authentication
+ 
+from datetime import timedelta
+ 
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=1),
+    # Access token expires after 1 hour
+    # User needs to refresh to get new token
+    
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    # Refresh token expires after 7 days
+    # After that, user must login again
+    
+    'ROTATE_REFRESH_TOKENS': True,
+    # Each refresh returns a new refresh token (more secure)
+    
+    'BLACKLIST_AFTER_ROTATION': False,
+    
+    'ALGORITHM': 'HS256',
+    'SIGNING_KEY': SECRET_KEY,
+    'VERIFYING_KEY': None,
+    
+    'AUTH_HEADER_TYPES': ('Bearer',),
+    # Authorization: Bearer <token>
+    
+    'USER_ID_FIELD': 'id',
+    'USER_ID_CLAIM': 'user_id',
+    'AUTH_TOKEN_CLASSES': ('rest_framework_simplejwt.tokens.AccessToken',),
+    'TOKEN_TYPE_CLAIM': 'token_type',
+    
+    'JTI_CLAIM': 'jti',
+}
 
 # Internationalization
 # https://docs.djangoproject.com/en/6.0/topics/i18n/
@@ -111,7 +237,146 @@ USE_I18N = True
 USE_TZ = True
 
 
-# Static files (CSS, JavaScript, Images)
-# https://docs.djangoproject.com/en/6.0/howto/static-files/
-
-STATIC_URL = 'static/'
+# ============================================================================
+# STATIC & MEDIA FILES
+# ============================================================================
+# For images, documents, etc.
+ 
+STATIC_URL = '/static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+ 
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+ 
+# ============================================================================
+# LOGGING
+# ============================================================================
+# Track errors, warnings, and important events
+ 
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
+            'style': '{',
+        },
+        'simple': {
+            'format': '{levelname} {message}',
+            'style': '{',
+        },
+    },
+    'filters': {
+        'require_debug_false': {
+            '()': 'django.utils.log.RequireDebugFalse',
+        },
+        'require_debug_true': {
+            '()': 'django.utils.log.RequireDebugTrue',
+        },
+    },
+    'handlers': {
+        'console': {
+            'level': 'INFO',
+            'class': 'logging.StreamHandler',
+            'formatter': 'simple'
+        },
+        'file': {
+            'level': 'INFO',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': BASE_DIR / 'logs' / 'django.log',
+            'maxBytes': 1024 * 1024 * 15,  # 15MB
+            'backupCount': 10,
+            'formatter': 'verbose'
+        },
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'django.request': {
+            'handlers': ['console', 'file'],
+            'level': 'ERROR',
+            'propagate': False,
+        },
+    },
+}
+ 
+# ============================================================================
+# SECURITY SETTINGS (PRODUCTION)
+# ============================================================================
+# Uncomment these in production
+ 
+if not DEBUG:
+    # HTTPS only
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    
+    # Security headers
+    SECURE_BROWSER_XSS_FILTER = True
+    SECURE_CONTENT_SECURITY_POLICY = {
+        'default-src': ("'self'",),
+        'script-src': ("'self'", "cdn.example.com"),
+        'style-src': ("'self'", "fonts.googleapis.com"),
+    }
+    
+    # HTTPS Strict Transport Security
+    SECURE_HSTS_SECONDS = 31536000
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+ 
+# ============================================================================
+# EMAIL CONFIGURATION
+# ============================================================================
+# For sending emails (welcome, reset password, etc.)
+ 
+EMAIL_BACKEND = config(
+    'EMAIL_BACKEND',
+    default='django.core.mail.backends.console.EmailBackend'
+)
+# Console backend prints to console (development)
+# In production, use: 'django.core.mail.backends.smtp.EmailBackend'
+ 
+EMAIL_HOST = config('EMAIL_HOST', default='smtp.gmail.com')
+EMAIL_PORT = config('EMAIL_PORT', default='587', cast=int)
+EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
+EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
+EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
+DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='noreply@afyora.com')
+ 
+# ============================================================================
+# CELERY CONFIGURATION (OPTIONAL)
+# ============================================================================
+# For background tasks (sending emails, processing large data, etc.)
+# Install: pip install celery redis
+ 
+CELERY_BROKER_URL = config('CELERY_BROKER_URL', default='redis://localhost:6379/0')
+CELERY_RESULT_BACKEND = config('CELERY_RESULT_BACKEND', default='redis://localhost:6379/0')
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+ 
+# ============================================================================
+# ENVIRONMENT-SPECIFIC SETTINGS
+# ============================================================================
+# Load different settings based on environment
+ 
+ENVIRONMENT = config('ENVIRONMENT', default='development')
+ 
+if ENVIRONMENT == 'production':
+    # Production settings
+    SECURE_SSL_REDIRECT = True
+    DEBUG = False
+    ALLOWED_HOSTS = ['yourdomain.com', 'www.yourdomain.com']
+ 
+elif ENVIRONMENT == 'staging':
+    # Staging settings (test environment)
+    DEBUG = False
+    ALLOWED_HOSTS = ['staging.yourdomain.com']
+ 
+else:
+    # Development settings
+    DEBUG = True
+    ALLOWED_HOSTS = ['*']
