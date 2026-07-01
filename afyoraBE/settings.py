@@ -123,7 +123,7 @@ DATABASES = {
     }
 }
 
-AUTH_USER_MODEL = 'auth.User'
+AUTH_USER_MODEL = 'core.User'
 
 # ============================================================================
 # REST FRAMEWORK CONFIGURATION
