@@ -77,6 +77,55 @@ class FacilityDetailSerializer(serializers.ModelSerializer):
         return obj.users.count()
 
 
+class FacilityWriteSerializer(serializers.ModelSerializer):
+    """
+    Writable serializer for creating facilities directly via the API.
+    """
+
+    def validate_name(self, value):
+        if Facility.objects.filter(name__iexact=value).exists():
+            raise serializers.ValidationError(
+                'A facility with this name already exists.'
+            )
+        return value
+
+    def validate_email(self, value):
+        if Facility.objects.filter(email__iexact=value).exists():
+            raise serializers.ValidationError(
+                'A facility with this email already exists.'
+            )
+        return value
+
+    def validate_registration_number(self, value):
+        if Facility.objects.filter(registration_number=value).exists():
+            raise serializers.ValidationError(
+                'A facility with this registration number already exists.'
+            )
+        return value
+
+    class Meta:
+        model = Facility
+        fields = [
+            'id', 'name', 'facility_type', 'registration_number',
+            'email', 'phone', 'address', 'city', 'country',
+            'logo', 'description', 'website',
+            'subscription_active', 'subscription_start_date',
+            'subscription_end_date'
+        ]
+        read_only_fields = ['id']
+        extra_kwargs = {
+            'name': {
+                'validators': []
+            },
+            'email': {
+                'validators': []
+            },
+            'registration_number': {
+                'validators': []
+            },
+        }
+
+
 # ============================================================================
 # USER SERIALIZERS
 # ============================================================================

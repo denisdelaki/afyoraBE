@@ -2,6 +2,7 @@
 
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -13,9 +14,26 @@ from .models import User, Facility, Department, FacilityOnboarding, AuditLog
 from .serializers import (
     SignupSerializer, LoginSerializer, SignupResponseSerializer,
     LoginResponseSerializer, UserSerializer, UserDetailSerializer,
-    FacilityListSerializer, FacilityDetailSerializer,
+    FacilityListSerializer, FacilityDetailSerializer, FacilityWriteSerializer,
     DepartmentSerializer
 )
+
+
+def get_audit_facility_for_user(user):
+    """
+    Resolve a facility for audit logs when possible.
+    Some admin users may not belong to a facility.
+    """
+    if not user or not getattr(user, 'is_authenticated', False):
+        return None
+
+    if getattr(user, 'facility_id', None):
+        return user.facility
+
+    if getattr(user, 'role', None) == 'admin':
+        return Facility.objects.order_by('id').first()
+
+    return None
 
 
 # ============================================================================
@@ -74,12 +92,36 @@ class SignupView(APIView):
     
     # AllowAny means anyone can access this (no login required)
     permission_classes = [AllowAny]
+
+    @staticmethod
+    def _normalize_signup_payload(payload):
+        """Support both snake_case and camelCase request formats."""
+        data = payload.copy()
+        alias_map = {
+            'facilityType': 'facility_type',
+            'facilityName': 'facility_name',
+            'registrationNumber': 'registration_number',
+            'adminFirstName': 'admin_first_name',
+            'adminLastName': 'admin_last_name',
+            'passwordConfirm': 'password_confirm',
+        }
+
+        for source_key, target_key in alias_map.items():
+            if source_key in data and target_key not in data:
+                data[target_key] = data[source_key]
+
+        if 'password' in data and 'password_confirm' not in data:
+            data['password_confirm'] = data['password']
+
+        return data
     
     def post(self, request):
         """Handle signup request"""
-        
+
+        normalized_data = self._normalize_signup_payload(request.data)
+
         # Initialize serializer with data from request
-        serializer = SignupSerializer(data=request.data)
+        serializer = SignupSerializer(data=normalized_data)
         
         # Validate all the data
         if not serializer.is_valid():
@@ -193,17 +235,20 @@ class LoginView(APIView):
         user.last_login_ip = self.request.META.get('REMOTE_ADDR')
         user.last_login_device = request.META.get('HTTP_USER_AGENT', '')[:100]
         user.save()
+
+        audit_facility = get_audit_facility_for_user(user)
         
         # Log login action
-        AuditLog.objects.create(
-            facility=user.facility,
-            user=user,
-            action='login',
-            model_name='User',
-            object_id=str(user.id),
-            description=f'{user.get_full_name()} logged in',
-            ip_address=self.request.META.get('REMOTE_ADDR')
-        )
+        if audit_facility is not None:
+            AuditLog.objects.create(
+                facility=audit_facility,
+                user=user,
+                action='login',
+                model_name='User',
+                object_id=str(user.id),
+                description=f'{user.get_full_name()} logged in',
+                ip_address=self.request.META.get('REMOTE_ADDR')
+            )
         
         # Build response
         response_data = {
@@ -214,6 +259,198 @@ class LoginView(APIView):
         }
         
         return Response(response_data, status=status.HTTP_200_OK)
+
+
+class LogoutView(APIView):
+    """
+    POST /api/auth/logout/
+
+    Stateless logout endpoint for frontend coordination and audit logging.
+    Clients should clear access/refresh tokens after this call.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        audit_facility = get_audit_facility_for_user(user)
+
+        if audit_facility is not None:
+            AuditLog.objects.create(
+                facility=audit_facility,
+                user=user,
+                action='login',
+                model_name='User',
+                object_id=str(user.id),
+                description=f'{user.get_full_name()} logged out',
+                ip_address=self.request.META.get('REMOTE_ADDR')
+            )
+
+        return Response(
+            {'message': 'Logout successful'},
+            status=status.HTTP_200_OK
+        )
+
+
+class CompleteOnboardingView(APIView):
+    """
+    POST /api/auth/onboarding/complete/
+
+    Completes facility onboarding after signup.
+    Accepts camelCase fields from the frontend and persists core records.
+    """
+
+    permission_classes = [AllowAny]
+
+    @staticmethod
+    def _normalize_payload(payload):
+        data = payload.copy()
+        alias_map = {
+            'organizationId': 'organization_id',
+            'facilityName': 'facility_name',
+            'facilityEmail': 'facility_email',
+            'licenseNumber': 'license_number',
+            'numberOfBeds': 'number_of_beds',
+            'adminFirstName': 'admin_first_name',
+            'adminLastName': 'admin_last_name',
+            'adminEmail': 'admin_email',
+            'adminPassword': 'admin_password',
+            'adminConfirmPassword': 'admin_confirm_password',
+            'selectedPlan': 'selected_plan',
+        }
+
+        for source_key, target_key in alias_map.items():
+            if source_key in data and target_key not in data:
+                data[target_key] = data[source_key]
+
+        if 'admin_password' in data and 'admin_confirm_password' not in data:
+            data['admin_confirm_password'] = data['admin_password']
+
+        return data
+
+    def post(self, request):
+        payload = self._normalize_payload(request.data)
+
+        required_fields = [
+            'organization_id', 'facility_name', 'address', 'city', 'phone',
+            'facility_email', 'license_number', 'admin_first_name',
+            'admin_last_name', 'admin_email', 'admin_password',
+            'admin_confirm_password', 'selected_plan'
+        ]
+
+        missing = [field for field in required_fields if not payload.get(field)]
+        if missing:
+            return Response(
+                {
+                    'error': 'Validation failed',
+                    'details': {field: ['This field is required.'] for field in missing}
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if payload['admin_password'] != payload['admin_confirm_password']:
+            return Response(
+                {
+                    'error': 'Validation failed',
+                    'details': {
+                        'admin_confirm_password': ['Passwords do not match.']
+                    }
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            organization_id = int(payload['organization_id'])
+        except (TypeError, ValueError):
+            return Response(
+                {
+                    'error': 'Validation failed',
+                    'details': {
+                        'organization_id': ['A valid organization ID is required.']
+                    }
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            facility = Facility.objects.get(id=organization_id)
+        except Facility.DoesNotExist:
+            return Response(
+                {
+                    'error': 'Validation failed',
+                    'details': {
+                        'organization_id': ['Facility not found.']
+                    }
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        with transaction.atomic():
+            facility.name = payload['facility_name']
+            facility.address = payload['address']
+            facility.city = payload['city']
+            facility.phone = payload['phone']
+            facility.email = payload['facility_email']
+            facility.registration_number = payload['license_number']
+            facility.onboarding_completed = True
+            facility.save()
+
+            admin_user = facility.users.filter(role='facility_admin').first()
+            if admin_user is None:
+                return Response(
+                    {
+                        'error': 'Validation failed',
+                        'details': {
+                            'admin_email': ['Facility admin user was not found.']
+                        }
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            admin_user.first_name = payload['admin_first_name']
+            admin_user.last_name = payload['admin_last_name']
+            admin_user.email = payload['admin_email']
+            admin_user.phone = payload['phone']
+            admin_user.license_number = payload['license_number']
+            admin_user.specialization = payload.get('specialization', '')
+            admin_user.set_password(payload['admin_password'])
+            admin_user.save()
+
+            onboarding, _ = FacilityOnboarding.objects.get_or_create(facility=facility)
+            onboarding.basic_info_completed = True
+            onboarding.staff_added = True
+            onboarding.departments_configured = True
+            onboarding.settings_configured = True
+            onboarding.check_completion()
+
+            modules_payload = payload.get('modules') or {}
+            selected_modules_count = 0
+            if isinstance(modules_payload, dict):
+                selected_modules_count = sum(1 for value in modules_payload.values() if value)
+            elif isinstance(modules_payload, list):
+                selected_modules_count = len(modules_payload)
+
+            AuditLog.objects.create(
+                facility=facility,
+                user=admin_user,
+                action='update',
+                model_name='FacilityOnboarding',
+                object_id=str(facility.id),
+                description=(
+                    f"Onboarding completed for {facility.name}. "
+                    f"Plan: {payload.get('selected_plan')}. "
+                    f"Modules selected: {selected_modules_count}."
+                )
+            )
+
+        return Response(
+            {
+                'organization_id': facility.id,
+                'onboarding_completed': True,
+                'message': 'Facility onboarding completed successfully.'
+            },
+            status=status.HTTP_200_OK
+        )
 
 
 # ============================================================================
@@ -286,14 +523,18 @@ class UserViewSet(viewsets.ModelViewSet):
         Called when creating a new user.
         Adds facility context automatically.
         """
+        facility = self.request.user.facility
+        if facility is None:
+            raise PermissionDenied('Your account is not assigned to a facility.')
+
         user = serializer.save(
-            facility=self.request.user.facility
+            facility=facility
             # Automatically assign to same facility as requester
         )
         
         # Log user creation
         AuditLog.objects.create(
-            facility=user.facility,
+            facility=facility,
             user=self.request.user,
             action='create',
             model_name='User',
@@ -419,17 +660,18 @@ class UserViewSet(viewsets.ModelViewSet):
 # FACILITY VIEWSET
 # ============================================================================
 
-class FacilityViewSet(viewsets.ReadOnlyModelViewSet):
+class FacilityViewSet(viewsets.ModelViewSet):
     """
-    Read-only viewset for facility data.
-    (Facility is created during signup, not directly through API)
+    Facility viewset for listing, retrieving, and creating facilities.
     
     Endpoints:
+    - POST /api/facilities/ → Create facility (admin only)
     - GET /api/facilities/ → List facilities (admin only)
     - GET /api/facilities/{id}/ → Get facility details
     """
     
     permission_classes = [IsAuthenticated]
+    http_method_names = ['get', 'post', 'head', 'options']
     filterset_fields = ['facility_type', 'subscription_active']
     search_fields = ['name', 'city', 'email']
     ordering = ['-created_at']
@@ -450,9 +692,44 @@ class FacilityViewSet(viewsets.ReadOnlyModelViewSet):
         return Facility.objects.none()
     
     def get_serializer_class(self):
+        if self.action == 'create':
+            return FacilityWriteSerializer
         if self.action == 'retrieve':
             return FacilityDetailSerializer
         return FacilityListSerializer
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+
+        detail_serializer = FacilityDetailSerializer(
+            serializer.instance,
+            context=self.get_serializer_context()
+        )
+        headers = self.get_success_headers(detail_serializer.data)
+        return Response(
+            detail_serializer.data,
+            status=status.HTTP_201_CREATED,
+            headers=headers
+        )
+
+    def perform_create(self, serializer):
+        """Only system admins can create facilities directly."""
+        if self.request.user.role != 'admin':
+            raise PermissionDenied('Only administrators can create facilities.')
+
+        with transaction.atomic():
+            facility = serializer.save()
+            FacilityOnboarding.objects.create(facility=facility)
+            AuditLog.objects.create(
+                facility=facility,
+                user=self.request.user,
+                action='create',
+                model_name='Facility',
+                object_id=str(facility.id),
+                description=f'Facility created: {facility.name}'
+            )
 
 
 # ============================================================================
@@ -485,10 +762,14 @@ class DepartmentViewSet(viewsets.ModelViewSet):
     
     def perform_create(self, serializer):
         """Auto-assign to user's facility"""
-        serializer.save(facility=self.request.user.facility)
+        facility = self.request.user.facility
+        if facility is None:
+            raise PermissionDenied('Your account is not assigned to a facility.')
+
+        serializer.save(facility=facility)
         
         AuditLog.objects.create(
-            facility=self.request.user.facility,
+            facility=facility,
             user=self.request.user,
             action='create',
             model_name='Department',

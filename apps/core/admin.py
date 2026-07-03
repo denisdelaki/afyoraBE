@@ -377,7 +377,10 @@ class AuditLogAdmin(admin.ModelAdmin):
         return False
     
     def has_delete_permission(self, request, obj=None):
-        return False
+        # Keep audit logs read-only for most users, but allow users who
+        # explicitly have delete permission (including superusers) so
+        # cascading deletes from related models can proceed in admin.
+        return request.user.is_superuser or request.user.has_perm('core.delete_auditlog')
     
     fieldsets = (
         ('Action Details', {

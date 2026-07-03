@@ -3,7 +3,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
-    SignupView, LoginView, UserViewSet,
+    SignupView, LoginView, LogoutView, CompleteOnboardingView, UserViewSet,
     FacilityViewSet, DepartmentViewSet
 )
 
@@ -34,6 +34,8 @@ urlpatterns = [
     # Authentication endpoints (no prefix)
     path('auth/signup/', SignupView.as_view(), name='signup'),
     path('auth/login/', LoginView.as_view(), name='login'),
+    path('auth/logout/', LogoutView.as_view(), name='logout'),
+    path('auth/onboarding/complete/', CompleteOnboardingView.as_view(), name='complete-onboarding'),
     
     # Resource endpoints (from router)
     path('', include(router.urls)),
@@ -45,6 +47,7 @@ urlpatterns = [
 # Authentication:
 # POST   /api/auth/signup/           - Register new facility
 # POST   /api/auth/login/            - Login user
+# POST   /api/auth/logout/           - Logout user
 #
 # Users:
 # GET    /api/users/                 - List users

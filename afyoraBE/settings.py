@@ -81,7 +81,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",      # Alternative frontend
     "http://localhost:8000",      # Django dev server
        # Production domain
-    
+     "https://afyorahms.vercel.app"
 ]
 
 CORS_ALLOW_CREDENTIALS = True
