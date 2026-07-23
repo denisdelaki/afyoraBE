@@ -1784,3 +1784,338 @@ INFO 2026-07-03 17:01:27,985 basehttp 6342 123145557340160 "GET /static/rest_fra
 INFO 2026-07-03 17:01:27,996 basehttp 6342 123145540550656 "GET /static/rest_framework/js/prettify-min.js HTTP/1.1" 304 0
 INFO 2026-07-03 17:01:28,008 basehttp 6342 123145540550656 "GET /static/rest_framework/img/grid.png HTTP/1.1" 304 0
 INFO 2026-07-03 17:01:28,006 basehttp 6342 123145574129664 "GET /static/rest_framework/js/default.js HTTP/1.1" 304 0
+INFO 2026-07-03 17:04:50,065 basehttp 6342 123145540550656 "GET /api/ HTTP/1.1" 200 5623
+WARNING 2026-07-03 17:05:46,685 basehttp 6342 123145641287680 "GET /api/dashboard/overview HTTP/1.1" 404 9139
+INFO 2026-07-03 17:07:04,448 basehttp 6342 123145540550656 "GET /api/users/ HTTP/1.1" 200 21116
+INFO 2026-07-03 17:07:04,521 basehttp 6342 123145540550656 "GET /static/rest_framework/fonts/glyphicons-halflings-regular.woff2 HTTP/1.1" 304 0
+INFO 2026-07-03 17:08:02,454 basehttp 6342 123145540550656 "GET /admin/ HTTP/1.1" 200 10151
+INFO 2026-07-03 17:08:02,659 basehttp 6342 123145557340160 "GET /static/admin/css/dark_mode.css HTTP/1.1" 304 0
+INFO 2026-07-03 17:08:02,661 basehttp 6342 123145540550656 "GET /static/admin/css/base.css HTTP/1.1" 304 0
+INFO 2026-07-03 17:08:02,669 basehttp 6342 123145590919168 "GET /static/admin/css/dashboard.css HTTP/1.1" 304 0
+INFO 2026-07-03 17:08:02,670 basehttp 6342 123145574129664 "GET /static/admin/css/nav_sidebar.css HTTP/1.1" 304 0
+INFO 2026-07-03 17:08:02,677 basehttp 6342 123145607708672 "GET /static/admin/css/responsive.css HTTP/1.1" 304 0
+INFO 2026-07-03 17:08:02,682 basehttp 6342 123145590919168 "GET /static/admin/js/theme.js HTTP/1.1" 304 0
+INFO 2026-07-03 17:08:02,683 basehttp 6342 123145607708672 "GET /static/admin/js/nav_sidebar.js HTTP/1.1" 304 0
+INFO 2026-07-03 17:08:02,701 basehttp 6342 123145607708672 "GET /static/admin/img/icon-addlink.svg HTTP/1.1" 304 0
+INFO 2026-07-03 17:08:02,702 basehttp 6342 123145574129664 "GET /static/admin/img/icon-viewlink.svg HTTP/1.1" 304 0
+INFO 2026-07-03 17:08:02,703 basehttp 6342 123145590919168 "GET /static/admin/img/icon-changelink.svg HTTP/1.1" 304 0
+INFO 2026-07-03 17:08:02,705 basehttp 6342 123145557340160 "GET /static/admin/img/icon-deletelink.svg HTTP/1.1" 304 0
+INFO 2026-07-03 17:08:06,852 basehttp 6342 123145557340160 "GET /admin/core/user/ HTTP/1.1" 200 15646
+INFO 2026-07-03 17:08:06,887 basehttp 6342 123145574129664 "GET /static/admin/js/vendor/jquery/jquery.js HTTP/1.1" 304 0
+INFO 2026-07-03 17:08:06,889 basehttp 6342 123145607708672 "GET /static/admin/js/jquery.init.js HTTP/1.1" 304 0
+INFO 2026-07-03 17:08:06,890 basehttp 6342 123145590919168 "GET /static/admin/css/changelists.css HTTP/1.1" 304 0
+INFO 2026-07-03 17:08:06,891 basehttp 6342 123145540550656 "GET /static/admin/js/core.js HTTP/1.1" 304 0
+INFO 2026-07-03 17:08:06,895 basehttp 6342 123145624498176 "GET /static/admin/js/admin/RelatedObjectLookups.js HTTP/1.1" 304 0
+INFO 2026-07-03 17:08:06,913 basehttp 6342 123145574129664 "GET /static/admin/js/actions.js HTTP/1.1" 304 0
+INFO 2026-07-03 17:08:06,917 basehttp 6342 123145607708672 "GET /static/admin/js/urlify.js HTTP/1.1" 304 0
+INFO 2026-07-03 17:08:06,920 basehttp 6342 123145590919168 "GET /static/admin/js/prepopulate.js HTTP/1.1" 304 0
+INFO 2026-07-03 17:08:06,922 basehttp 6342 123145540550656 "GET /static/admin/js/vendor/xregexp/xregexp.js HTTP/1.1" 304 0
+INFO 2026-07-03 17:08:06,926 basehttp 6342 123145540550656 "GET /static/admin/img/search.svg HTTP/1.1" 304 0
+INFO 2026-07-03 17:08:06,930 basehttp 6342 123145590919168 "GET /static/admin/img/icon-yes.svg HTTP/1.1" 304 0
+INFO 2026-07-03 17:08:06,931 basehttp 6342 123145557340160 "GET /admin/jsi18n/ HTTP/1.1" 200 3343
+INFO 2026-07-03 17:08:06,937 basehttp 6342 123145557340160 "GET /static/admin/js/filters.js HTTP/1.1" 304 0
+INFO 2026-07-03 17:08:06,970 basehttp 6342 123145557340160 "GET /static/admin/img/tooltag-add.svg HTTP/1.1" 304 0
+INFO 2026-07-03 17:08:09,679 basehttp 6342 123145557340160 "GET /admin/core/user/add/ HTTP/1.1" 200 11210
+INFO 2026-07-03 17:08:09,708 basehttp 6342 123145540550656 "GET /static/admin/js/prepopulate_init.js HTTP/1.1" 304 0
+INFO 2026-07-03 17:08:09,711 basehttp 6342 123145590919168 "GET /static/admin/css/forms.css HTTP/1.1" 304 0
+INFO 2026-07-03 17:08:09,718 basehttp 6342 123145590919168 "GET /static/admin/js/change_form.js HTTP/1.1" 304 0
+INFO 2026-07-03 17:08:09,722 basehttp 6342 123145557340160 "GET /admin/jsi18n/ HTTP/1.1" 200 3343
+INFO 2026-07-03 17:08:09,723 basehttp 6342 123145540550656 "GET /static/admin/css/widgets.css HTTP/1.1" 304 0
+INFO 2026-07-03 17:08:14,303 basehttp 6342 123145540550656 "GET /admin/core/user/ HTTP/1.1" 200 15646
+INFO 2026-07-03 17:08:14,338 basehttp 6342 123145540550656 "GET /admin/jsi18n/ HTTP/1.1" 200 3343
+INFO 2026-07-03 17:08:16,763 basehttp 6342 123145540550656 "GET /admin/core/user/10/change/ HTTP/1.1" 200 24923
+INFO 2026-07-03 17:08:16,797 basehttp 6342 123145557340160 "GET /static/admin/js/calendar.js HTTP/1.1" 304 0
+INFO 2026-07-03 17:08:16,801 basehttp 6342 123145590919168 "GET /static/admin/js/collapse.js HTTP/1.1" 304 0
+INFO 2026-07-03 17:08:16,802 basehttp 6342 123145607708672 "GET /static/admin/js/admin/DateTimeShortcuts.js HTTP/1.1" 304 0
+INFO 2026-07-03 17:08:16,811 basehttp 6342 123145540550656 "GET /admin/jsi18n/ HTTP/1.1" 200 3343
+INFO 2026-07-03 17:08:16,863 basehttp 6342 123145540550656 "GET /static/admin/img/icon-calendar.svg HTTP/1.1" 304 0
+INFO 2026-07-03 17:14:41,239 autoreload 6342 140704648788480 /Users/kipyegondenis/Documents/personalProjects/afyoraBE/apps/employees/models.py changed, reloading.
+INFO 2026-07-03 17:14:42,556 autoreload 8238 140704648788480 Watching for file changes with StatReloader
+INFO 2026-07-03 17:14:55,574 autoreload 8238 140704648788480 /Users/kipyegondenis/Documents/personalProjects/afyoraBE/apps/employees/urls.py changed, reloading.
+INFO 2026-07-03 17:14:57,509 autoreload 8267 140704648788480 Watching for file changes with StatReloader
+INFO 2026-07-03 17:15:01,576 autoreload 8267 140704648788480 /Users/kipyegondenis/Documents/personalProjects/afyoraBE/apps/employees/admin.py changed, reloading.
+INFO 2026-07-03 17:15:03,610 autoreload 8281 140704648788480 Watching for file changes with StatReloader
+INFO 2026-07-03 17:15:04,699 basehttp 8281 123145536782336 "GET /api/employees HTTP/1.1" 301 0
+WARNING 2026-07-03 17:15:04,826 basehttp 8281 123145536782336 "GET /api/employees/ HTTP/1.1" 401 58
+INFO 2026-07-03 17:18:47,462 autoreload 8281 140704648788480 /Users/kipyegondenis/Documents/personalProjects/afyoraBE/apps/employees/views.py changed, reloading.
+INFO 2026-07-03 17:18:48,514 autoreload 8399 140704648788480 Watching for file changes with StatReloader
+INFO 2026-07-03 17:19:36,667 autoreload 8399 140704648788480 /Users/kipyegondenis/Documents/personalProjects/afyoraBE/apps/employees/urls.py changed, reloading.
+INFO 2026-07-03 17:19:37,676 autoreload 8444 140704648788480 Watching for file changes with StatReloader
+INFO 2026-07-03 17:21:49,187 basehttp 8444 123145427169280 "GET /admin/ HTTP/1.1" 200 10830
+ERROR 2026-07-03 17:21:55,588 log 8444 123145427169280 Internal Server Error: /admin/employees/employee/
+Traceback (most recent call last):
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/db/backends/utils.py", line 89, in _execute
+    return self.cursor.execute(sql, params)
+           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/db/backends/sqlite3/base.py", line 328, in execute
+    return super().execute(query, params)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such table: employees_employee
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/core/handlers/exception.py", line 55, in inner
+    response = get_response(request)
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/core/handlers/base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/contrib/admin/options.py", line 688, in wrapper
+    return self.admin_site.admin_view(view)(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/utils/decorators.py", line 134, in _wrapper_view
+    response = view_func(request, *args, **kwargs)
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/views/decorators/cache.py", line 62, in _wrapper_view_func
+    response = view_func(request, *args, **kwargs)
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/contrib/admin/sites.py", line 242, in inner
+    return view(request, *args, **kwargs)
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/utils/decorators.py", line 46, in _wrapper
+    return bound_method(*args, **kwargs)
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/utils/decorators.py", line 134, in _wrapper_view
+    response = view_func(request, *args, **kwargs)
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/contrib/admin/options.py", line 1926, in changelist_view
+    cl = self.get_changelist_instance(request)
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/contrib/admin/options.py", line 836, in get_changelist_instance
+    return ChangeList(
+        request,
+    ...<12 lines>...
+        self.search_help_text,
+    )
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/contrib/admin/views/main.py", line 123, in __init__
+    self.get_results(request)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/contrib/admin/views/main.py", line 279, in get_results
+    result_count = paginator.count
+                   ^^^^^^^^^^^^^^^
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/utils/functional.py", line 57, in __get__
+    res = instance.__dict__[self.name] = self.func(instance)
+                                         ~~~~~~~~~^^^^^^^^^^
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/core/paginator.py", line 93, in count
+    return c()
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/db/models/query.py", line 608, in count
+    return self.query.get_count(using=self.db)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/db/models/sql/query.py", line 568, in get_count
+    return obj.get_aggregation(using, {"__count": Count("*")})["__count"]
+           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/db/models/sql/query.py", line 554, in get_aggregation
+    result = compiler.execute_sql(SINGLE)
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/db/models/sql/compiler.py", line 1562, in execute_sql
+    cursor.execute(sql, params)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/db/backends/utils.py", line 102, in execute
+    return super().execute(sql, params)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/db/backends/utils.py", line 67, in execute
+    return self._execute_with_wrappers(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        sql, params, many=False, executor=self._execute
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/db/backends/utils.py", line 80, in _execute_with_wrappers
+    return executor(sql, params, many, context)
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/db/backends/utils.py", line 84, in _execute
+    with self.db.wrap_database_errors:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/db/utils.py", line 91, in __exit__
+    raise dj_exc_value.with_traceback(traceback) from exc_value
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/db/backends/utils.py", line 89, in _execute
+    return self.cursor.execute(sql, params)
+           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/db/backends/sqlite3/base.py", line 328, in execute
+    return super().execute(query, params)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+django.db.utils.OperationalError: no such table: employees_employee
+ERROR 2026-07-03 17:21:55,598 basehttp 8444 123145427169280 "GET /admin/employees/employee/ HTTP/1.1" 500 185285
+INFO 2026-07-03 17:23:43,053 basehttp 8444 123145427169280 "GET /admin/employees/employee/ HTTP/1.1" 200 10238
+INFO 2026-07-03 17:23:43,111 basehttp 8444 123145427169280 "GET /admin/jsi18n/ HTTP/1.1" 200 3343
+INFO 2026-07-03 17:23:46,742 basehttp 8444 123145427169280 "GET /admin/employees/employee/add/ HTTP/1.1" 200 17753
+INFO 2026-07-03 17:23:46,781 basehttp 8444 123145427169280 "GET /admin/jsi18n/ HTTP/1.1" 200 3343
+INFO 2026-07-03 17:24:42,317 basehttp 8444 123145427169280 "GET /admin/ HTTP/1.1" 200 10830
+INFO 2026-07-03 17:24:45,960 basehttp 8444 123145427169280 "GET /admin/core/department/ HTTP/1.1" 200 9632
+INFO 2026-07-03 17:24:46,012 basehttp 8444 123145427169280 "GET /admin/jsi18n/ HTTP/1.1" 200 3343
+INFO 2026-07-03 17:24:48,065 basehttp 8444 123145427169280 "GET /admin/core/department/add/ HTTP/1.1" 200 17687
+INFO 2026-07-03 17:24:48,112 basehttp 8444 123145427169280 "GET /admin/jsi18n/ HTTP/1.1" 200 3343
+INFO 2026-07-03 17:25:02,449 autoreload 8444 140704648788480 /Users/kipyegondenis/Documents/personalProjects/afyoraBE/apps/employees/serializers.py changed, reloading.
+INFO 2026-07-03 17:25:03,449 autoreload 9034 140704648788480 Watching for file changes with StatReloader
+INFO 2026-07-03 17:25:09,596 autoreload 9034 140704648788480 /Users/kipyegondenis/Documents/personalProjects/afyoraBE/apps/employees/views.py changed, reloading.
+INFO 2026-07-03 17:25:10,520 autoreload 9054 140704648788480 Watching for file changes with StatReloader
+INFO 2026-07-03 17:25:35,310 basehttp 9054 123145488343040 "POST /admin/core/department/add/ HTTP/1.1" 302 0
+INFO 2026-07-03 17:25:35,388 basehttp 9054 123145488343040 "GET /admin/core/department/ HTTP/1.1" 200 11850
+INFO 2026-07-03 17:25:35,430 basehttp 9054 123145488343040 "GET /admin/jsi18n/ HTTP/1.1" 200 3343
+INFO 2026-07-03 17:25:35,450 basehttp 9054 123145488343040 "GET /static/admin/img/sorting-icons.svg HTTP/1.1" 304 0
+INFO 2026-07-03 17:25:41,970 basehttp 9054 123145488343040 "GET /admin/ HTTP/1.1" 200 10860
+INFO 2026-07-03 17:25:49,880 basehttp 9054 123145488343040 "GET /admin/employees/employee/ HTTP/1.1" 200 10238
+INFO 2026-07-03 17:25:49,907 basehttp 9054 123145488343040 "GET /admin/jsi18n/ HTTP/1.1" 200 3343
+INFO 2026-07-03 17:25:52,648 basehttp 9054 123145488343040 "GET /admin/employees/employee/add/ HTTP/1.1" 200 17753
+INFO 2026-07-03 17:25:52,681 basehttp 9054 123145488343040 "GET /admin/jsi18n/ HTTP/1.1" 200 3343
+INFO 2026-07-03 17:26:08,240 basehttp 9054 123145488343040 "GET /admin/ HTTP/1.1" 200 10860
+INFO 2026-07-03 17:26:10,907 basehttp 9054 123145488343040 "GET /admin/ HTTP/1.1" 200 10860
+INFO 2026-07-03 17:26:35,323 basehttp 9054 123145488343040 "GET /admin/employees/ HTTP/1.1" 200 5103
+INFO 2026-07-03 17:26:39,872 basehttp 9054 123145488343040 "GET /admin/employees/employee/ HTTP/1.1" 200 10238
+INFO 2026-07-03 17:26:39,921 basehttp 9054 123145488343040 "GET /admin/jsi18n/ HTTP/1.1" 200 3343
+INFO 2026-07-03 17:26:41,931 basehttp 9054 123145488343040 "GET /admin/employees/employee/add/ HTTP/1.1" 200 17753
+INFO 2026-07-03 17:26:41,971 basehttp 9054 123145488343040 "GET /admin/jsi18n/ HTTP/1.1" 200 3343
+INFO 2026-07-03 17:28:19,908 autoreload 9054 140704648788480 /Users/kipyegondenis/Documents/personalProjects/afyoraBE/apps/employees/serializers.py changed, reloading.
+INFO 2026-07-03 17:28:20,790 autoreload 9150 140704648788480 Watching for file changes with StatReloader
+INFO 2026-07-03 17:28:29,002 basehttp 9150 123145468731392 "GET / HTTP/1.1" 200 81
+INFO 2026-07-03 17:28:47,624 basehttp 9150 123145468731392 "GET /api/ HTTP/1.1" 200 5623
+INFO 2026-07-03 17:29:25,937 basehttp 9150 123145468731392 "GET /admin/employees/employee/add/ HTTP/1.1" 200 17753
+INFO 2026-07-03 17:29:25,966 basehttp 9150 123145468731392 "GET /admin/jsi18n/ HTTP/1.1" 200 3343
+INFO 2026-07-03 17:29:32,461 autoreload 9150 140704648788480 /Users/kipyegondenis/Documents/personalProjects/afyoraBE/apps/employees/serializers.py changed, reloading.
+INFO 2026-07-03 17:29:33,257 autoreload 9227 140704648788480 Watching for file changes with StatReloader
+INFO 2026-07-03 17:29:45,081 basehttp 9227 123145360506880 "GET /admin/ HTTP/1.1" 200 10860
+INFO 2026-07-03 17:29:48,945 basehttp 9227 123145360506880 "GET /admin/core/department/ HTTP/1.1" 200 11635
+INFO 2026-07-03 17:29:48,976 basehttp 9227 123145360506880 "GET /admin/jsi18n/ HTTP/1.1" 200 3343
+INFO 2026-07-03 17:30:02,195 basehttp 9227 123145360506880 "GET /admin/ HTTP/1.1" 200 10860
+INFO 2026-07-03 17:30:10,920 basehttp 9227 123145360506880 "GET /admin/employees/employee/ HTTP/1.1" 200 10238
+INFO 2026-07-03 17:30:10,949 basehttp 9227 123145360506880 "GET /admin/jsi18n/ HTTP/1.1" 200 3343
+INFO 2026-07-03 17:30:13,453 basehttp 9227 123145360506880 "GET /admin/employees/employee/add/ HTTP/1.1" 200 17753
+INFO 2026-07-03 17:30:13,489 basehttp 9227 123145360506880 "GET /admin/jsi18n/ HTTP/1.1" 200 3343
+INFO 2026-07-03 17:34:20,332 autoreload 9227 140704648788480 /Users/kipyegondenis/Documents/personalProjects/afyoraBE/apps/employees/models.py changed, reloading.
+INFO 2026-07-03 17:34:21,436 autoreload 9722 140704648788480 Watching for file changes with StatReloader
+INFO 2026-07-03 17:34:36,912 autoreload 9722 140704648788480 /Users/kipyegondenis/Documents/personalProjects/afyoraBE/apps/employees/models.py changed, reloading.
+INFO 2026-07-03 17:34:37,682 autoreload 9747 140704648788480 Watching for file changes with StatReloader
+INFO 2026-07-03 17:35:55,340 basehttp 9747 123145432010752 "GET /admin/employees/ HTTP/1.1" 200 5103
+INFO 2026-07-03 17:35:57,525 basehttp 9747 123145432010752 "GET /admin/ HTTP/1.1" 200 10860
+INFO 2026-07-03 17:36:00,821 basehttp 9747 123145432010752 "GET /admin/ HTTP/1.1" 200 10860
+INFO 2026-07-03 17:36:04,064 basehttp 9747 123145432010752 "GET /admin/employees/employee/ HTTP/1.1" 200 10238
+INFO 2026-07-03 17:36:04,107 basehttp 9747 123145432010752 "GET /admin/jsi18n/ HTTP/1.1" 200 3343
+INFO 2026-07-03 17:36:06,513 basehttp 9747 123145432010752 "GET /admin/employees/employee/add/ HTTP/1.1" 200 17753
+INFO 2026-07-03 17:36:06,540 basehttp 9747 123145432010752 "GET /admin/jsi18n/ HTTP/1.1" 200 3343
+WARNING 2026-07-03 17:37:25,428 basehttp 9747 123145448800256 "GET /api/employees/ HTTP/1.1" 401 58
+INFO 2026-07-03 17:41:07,549 basehttp 9747 123145465589760 "GET /api/employees HTTP/1.1" 301 0
+INFO 2026-07-03 17:41:07,594 basehttp 9747 123145465589760 "GET /api/employees/ HTTP/1.1" 200 16924
+INFO 2026-07-03 17:41:12,197 basehttp 9747 123145465589760 "GET /api/ HTTP/1.1" 200 5623
+INFO 2026-07-03 17:41:23,603 basehttp 9747 123145448800256 "GET /api/employees?facility=7 HTTP/1.1" 301 0
+WARNING 2026-07-03 17:41:23,836 basehttp 9747 123145448800256 "GET /api/employees/?facility=7 HTTP/1.1" 401 58
+INFO 2026-07-03 17:41:23,875 basehttp 9747 123145465589760 "GET /api/ HTTP/1.1" 200 5623
+INFO 2026-07-03 17:41:26,574 basehttp 9747 123145465589760 "GET /api/employees/%7BemployeeId%7D HTTP/1.1" 301 0
+WARNING 2026-07-03 17:41:26,617 basehttp 9747 123145465589760 "GET /api/employees/%7BemployeeId%7D/ HTTP/1.1" 404 11822
+INFO 2026-07-03 17:41:40,499 basehttp 9747 123145465589760 "GET /api/employees/ HTTP/1.1" 200 16924
+INFO 2026-07-03 17:43:34,658 autoreload 9747 140704648788480 /Users/kipyegondenis/Documents/personalProjects/afyoraBE/apps/employees/views.py changed, reloading.
+INFO 2026-07-03 17:43:35,706 autoreload 10159 140704648788480 Watching for file changes with StatReloader
+INFO 2026-07-03 17:44:32,284 autoreload 10159 140704648788480 /Users/kipyegondenis/Documents/personalProjects/afyoraBE/apps/employees/views.py changed, reloading.
+INFO 2026-07-03 17:44:33,316 autoreload 10227 140704648788480 Watching for file changes with StatReloader
+INFO 2026-07-03 17:44:50,237 basehttp 10227 123145434353664 "GET /admin/employees/ HTTP/1.1" 200 5103
+INFO 2026-07-03 17:44:52,903 basehttp 10227 123145434353664 "GET /admin/employees/employee/ HTTP/1.1" 200 10238
+INFO 2026-07-03 17:44:52,934 basehttp 10227 123145434353664 "GET /admin/jsi18n/ HTTP/1.1" 200 3343
+INFO 2026-07-03 17:44:54,758 basehttp 10227 123145434353664 "GET /admin/employees/employee/add/ HTTP/1.1" 200 17753
+INFO 2026-07-03 17:44:54,790 basehttp 10227 123145434353664 "GET /admin/jsi18n/ HTTP/1.1" 200 3343
+WARNING 2026-07-03 17:45:40,433 basehttp 10227 123145451143168 "GET /api/employees/?facility=7 HTTP/1.1" 401 58
+INFO 2026-07-03 17:46:59,875 autoreload 10227 140704648788480 /Users/kipyegondenis/Documents/personalProjects/afyoraBE/apps/employees/views.py changed, reloading.
+INFO 2026-07-03 17:47:00,972 autoreload 10356 140704648788480 Watching for file changes with StatReloader
+WARNING 2026-07-03 17:47:42,773 basehttp 10356 123145544982528 "GET /api/employees/?facility=7 HTTP/1.1" 401 58
+INFO 2026-07-03 17:48:00,490 basehttp 10356 123145544982528 "OPTIONS /api/auth/logout HTTP/1.1" 200 0
+ERROR 2026-07-03 17:48:00,554 log 10356 123145544982528 Internal Server Error: /api/auth/logout
+Traceback (most recent call last):
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/core/handlers/exception.py", line 55, in inner
+    response = get_response(request)
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/utils/deprecation.py", line 136, in __call__
+    response = self.process_response(request, response)
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/middleware/common.py", line 108, in process_response
+    return self.response_redirect_class(self.get_full_path_with_slash(request))
+                                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/middleware/common.py", line 87, in get_full_path_with_slash
+    raise RuntimeError(
+    ...<9 lines>...
+    )
+RuntimeError: You called this URL via POST, but the URL doesn't end in a slash and you have APPEND_SLASH set. Django can't redirect to the slash URL while maintaining POST data. Change your form to point to 127.0.0.1:8000/api/auth/logout/ (note the trailing slash), or set APPEND_SLASH=False in your Django settings.
+ERROR 2026-07-03 17:48:00,556 basehttp 10356 123145544982528 "POST /api/auth/logout HTTP/1.1" 500 74691
+INFO 2026-07-03 17:48:53,385 basehttp 10356 123145544982528 "OPTIONS /api/auth/signup/ HTTP/1.1" 200 0
+INFO 2026-07-03 17:48:54,120 basehttp 10356 123145544982528 "POST /api/auth/signup/ HTTP/1.1" 201 107
+INFO 2026-07-03 17:49:50,088 basehttp 10356 123145544982528 "OPTIONS /api/auth/onboarding/complete/ HTTP/1.1" 200 0
+INFO 2026-07-03 17:49:50,828 basehttp 10356 123145544982528 "POST /api/auth/onboarding/complete/ HTTP/1.1" 200 105
+WARNING 2026-07-03 17:49:51,008 basehttp 10356 123145544982528 "GET /api/dashboard/overview HTTP/1.1" 404 9139
+INFO 2026-07-03 17:50:05,070 basehttp 10356 123145544982528 "GET /api/employees?facility=8 HTTP/1.1" 301 0
+WARNING 2026-07-03 17:50:05,127 basehttp 10356 123145544982528 "GET /api/employees/?facility=8 HTTP/1.1" 401 58
+ERROR 2026-07-03 17:50:11,383 log 10356 123145544982528 Internal Server Error: /api/auth/logout
+Traceback (most recent call last):
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/core/handlers/exception.py", line 55, in inner
+    response = get_response(request)
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/utils/deprecation.py", line 136, in __call__
+    response = self.process_response(request, response)
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/middleware/common.py", line 108, in process_response
+    return self.response_redirect_class(self.get_full_path_with_slash(request))
+                                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/middleware/common.py", line 87, in get_full_path_with_slash
+    raise RuntimeError(
+    ...<9 lines>...
+    )
+RuntimeError: You called this URL via POST, but the URL doesn't end in a slash and you have APPEND_SLASH set. Django can't redirect to the slash URL while maintaining POST data. Change your form to point to 127.0.0.1:8000/api/auth/logout/ (note the trailing slash), or set APPEND_SLASH=False in your Django settings.
+ERROR 2026-07-03 17:50:11,385 basehttp 10356 123145544982528 "POST /api/auth/logout HTTP/1.1" 500 74691
+INFO 2026-07-03 17:50:31,706 basehttp 10356 123145544982528 "OPTIONS /api/auth/login/ HTTP/1.1" 200 0
+INFO 2026-07-03 17:50:32,403 basehttp 10356 123145544982528 "POST /api/auth/login/ HTTP/1.1" 200 823
+WARNING 2026-07-03 17:50:32,466 basehttp 10356 123145544982528 "GET /api/dashboard/overview HTTP/1.1" 404 9139
+WARNING 2026-07-03 17:50:40,920 basehttp 10356 123145544982528 "GET /api/employees/ HTTP/1.1" 401 58
+INFO 2026-07-03 17:52:52,790 basehttp 10356 123145544982528 "OPTIONS /api/employees HTTP/1.1" 200 0
+INFO 2026-07-03 17:52:52,966 basehttp 10356 123145544982528 "OPTIONS /api/employees/ HTTP/1.1" 200 0
+INFO 2026-07-03 17:52:52,983 basehttp 10356 123145544982528 "GET /api/employees/ HTTP/1.1" 200 52
+ERROR 2026-07-03 17:54:47,350 log 10356 123145544982528 Internal Server Error: /api/employees
+Traceback (most recent call last):
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/core/handlers/exception.py", line 55, in inner
+    response = get_response(request)
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/utils/deprecation.py", line 136, in __call__
+    response = self.process_response(request, response)
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/middleware/common.py", line 108, in process_response
+    return self.response_redirect_class(self.get_full_path_with_slash(request))
+                                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/middleware/common.py", line 87, in get_full_path_with_slash
+    raise RuntimeError(
+    ...<9 lines>...
+    )
+RuntimeError: You called this URL via POST, but the URL doesn't end in a slash and you have APPEND_SLASH set. Django can't redirect to the slash URL while maintaining POST data. Change your form to point to 127.0.0.1:8000/api/employees/ (note the trailing slash), or set APPEND_SLASH=False in your Django settings.
+ERROR 2026-07-03 17:54:47,357 basehttp 10356 123145544982528 "POST /api/employees HTTP/1.1" 500 75044
+INFO 2026-07-03 17:55:42,371 autoreload 10356 140704648788480 /Users/kipyegondenis/Documents/personalProjects/afyoraBE/apps/employees/urls.py changed, reloading.
+INFO 2026-07-03 17:55:43,459 autoreload 10643 140704648788480 Watching for file changes with StatReloader
+INFO 2026-07-03 17:56:14,925 basehttp 10643 123145428156416 "GET /api/employees/ HTTP/1.1" 200 52
+INFO 2026-07-03 17:57:27,668 basehttp 10643 123145428156416 "GET /api/employees/ HTTP/1.1" 200 52
+INFO 2026-07-03 17:58:36,069 basehttp 10643 123145428156416 "GET /api/employees/ HTTP/1.1" 200 52
+ERROR 2026-07-03 17:59:15,395 log 10643 123145428156416 Internal Server Error: /api/employees
+Traceback (most recent call last):
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/core/handlers/exception.py", line 55, in inner
+    response = get_response(request)
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/utils/deprecation.py", line 136, in __call__
+    response = self.process_response(request, response)
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/middleware/common.py", line 108, in process_response
+    return self.response_redirect_class(self.get_full_path_with_slash(request))
+                                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/middleware/common.py", line 87, in get_full_path_with_slash
+    raise RuntimeError(
+    ...<9 lines>...
+    )
+RuntimeError: You called this URL via POST, but the URL doesn't end in a slash and you have APPEND_SLASH set. Django can't redirect to the slash URL while maintaining POST data. Change your form to point to 127.0.0.1:8000/api/employees/ (note the trailing slash), or set APPEND_SLASH=False in your Django settings.
+ERROR 2026-07-03 17:59:15,398 basehttp 10643 123145428156416 "POST /api/employees HTTP/1.1" 500 75044
+INFO 2026-07-03 18:02:00,545 basehttp 10643 123145428156416 "GET /api/employees/ HTTP/1.1" 200 52
+WARNING 2026-07-03 18:02:26,631 basehttp 10643 123145428156416 "POST /api/employees/ HTTP/1.1" 400 94
+INFO 2026-07-03 18:03:02,780 basehttp 10643 123145428156416 "GET /api/employees/ HTTP/1.1" 200 52
+INFO 2026-07-03 18:03:17,802 autoreload 10643 140704648788480 /Users/kipyegondenis/Documents/personalProjects/afyoraBE/apps/employees/urls.py changed, reloading.
+INFO 2026-07-03 18:03:18,949 autoreload 11370 140704648788480 Watching for file changes with StatReloader
+INFO 2026-07-03 18:04:18,613 autoreload 11370 140704648788480 /Users/kipyegondenis/Documents/personalProjects/afyoraBE/apps/employees/views.py changed, reloading.
+INFO 2026-07-03 18:04:19,601 autoreload 11403 140704648788480 Watching for file changes with StatReloader
+INFO 2026-07-03 18:04:23,557 autoreload 11403 140704648788480 /Users/kipyegondenis/Documents/personalProjects/afyoraBE/apps/employees/views.py changed, reloading.
+INFO 2026-07-03 18:04:24,467 autoreload 11430 140704648788480 Watching for file changes with StatReloader
+INFO 2026-07-20 10:21:30,181 autoreload 8752 140704574237184 Watching for file changes with StatReloader
+WARNING 2026-07-20 10:21:58,472 basehttp 8752 123145338810368 "GET /api/dashboard/overview HTTP/1.1" 404 9139
+WARNING 2026-07-20 10:22:03,484 basehttp 8752 123145338810368 "GET /api/dashboard/overview HTTP/1.1" 404 9139
+WARNING 2026-07-20 10:22:16,074 basehttp 8752 123145338810368 "GET /api/dashboard/overview HTTP/1.1" 404 9139
+WARNING 2026-07-20 10:22:19,662 basehttp 8752 123145355599872 "GET /api/appointments HTTP/1.1" 404 9121
+WARNING 2026-07-20 10:22:19,674 basehttp 8752 123145338810368 "GET /api/patients HTTP/1.1" 404 9109
+INFO 2026-07-20 10:23:04,318 basehttp 8752 123145338810368 "OPTIONS /api/employees/ HTTP/1.1" 200 0
+WARNING 2026-07-20 10:23:04,361 basehttp 8752 123145338810368 "GET /api/employees/ HTTP/1.1" 401 172
+INFO 2026-07-20 10:23:17,187 basehttp 8752 123145338810368 "OPTIONS /api/auth/logout HTTP/1.1" 200 0
+ERROR 2026-07-20 10:23:17,244 log 8752 123145338810368 Internal Server Error: /api/auth/logout
+Traceback (most recent call last):
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/core/handlers/exception.py", line 55, in inner
+    response = get_response(request)
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/utils/deprecation.py", line 136, in __call__
+    response = self.process_response(request, response)
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/middleware/common.py", line 108, in process_response
+    return self.response_redirect_class(self.get_full_path_with_slash(request))
+                                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "/Users/kipyegondenis/Documents/personalProjects/afyoraBE/venv/lib/python3.14/site-packages/django/middleware/common.py", line 87, in get_full_path_with_slash
+    raise RuntimeError(
+    ...<9 lines>...
+    )
+RuntimeError: You called this URL via POST, but the URL doesn't end in a slash and you have APPEND_SLASH set. Django can't redirect to the slash URL while maintaining POST data. Change your form to point to 127.0.0.1:8000/api/auth/logout/ (note the trailing slash), or set APPEND_SLASH=False in your Django settings.
+ERROR 2026-07-20 10:23:17,247 basehttp 8752 123145338810368 "POST /api/auth/logout HTTP/1.1" 500 74478
