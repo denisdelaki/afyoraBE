@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: afyoraBE
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt && python manage.py migrate
+    startCommand: gunicorn afyoraBE.wsgi:application
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.14
