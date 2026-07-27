@@ -99,6 +99,23 @@ class AppointmentApiTests(APITestCase):
 		self.assertEqual(response.data['patientId'], 'PAT1001')
 		self.assertEqual(response.data['status'], 'Scheduled')
 
+	def test_create_appointment_blocks_same_doctor_same_day(self):
+		self._authenticate(self.user_one)
+
+		payload = {
+			'patientId': 'PAT1001',
+			'date': '2026-07-30',
+			'time': '16:00',
+			'doctor': 'Dr. House',
+			'department': 'Cardiology',
+		}
+
+		response = self.client.post('/api/appointments/?facilityId=1/', payload, format='json')
+
+		self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+		self.assertIn('doctor', response.data)
+		self.assertIn('Please reschedule', str(response.data['doctor']))
+
 	def test_list_appointments_is_facility_scoped(self):
 		self._authenticate(self.user_one)
 
@@ -127,6 +144,36 @@ class AppointmentApiTests(APITestCase):
 		self.assertEqual(response.status_code, status.HTTP_200_OK)
 		self.assertEqual(response.data['doctor'], 'Dr. Updated')
 		self.assertEqual(response.data['status'], 'Confirmed')
+
+	def test_reschedule_blocks_same_doctor_same_date_and_time(self):
+		self._authenticate(self.user_one)
+
+		Appointment.objects.create(
+			facility=self.facility_one,
+			patient=self.patient_one,
+			appointment_id='APT0002',
+			date='2026-08-12',
+			time='11:30:00',
+			doctor='Dr. House',
+			department='Cardiology',
+			status='Scheduled',
+		)
+
+		payload = {
+			'doctor': 'Dr. House',
+			'date': '2026-08-12',
+			'time': '11:30',
+		}
+
+		response = self.client.patch(
+			f'/api/appointments/{self.appointment_one.appointment_id}/?facilityId=1/',
+			payload,
+			format='json',
+		)
+
+		self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+		self.assertIn('doctor', response.data)
+		self.assertIn('Please reschedule to another time', str(response.data['doctor']))
 
 	def test_cancel_appointment(self):
 		self._authenticate(self.user_one)

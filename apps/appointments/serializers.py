@@ -52,27 +52,51 @@ class AppointmentSerializer(serializers.ModelSerializer):
         if self.instance is not None and 'patient' not in attrs:
             attrs['patient'] = self.instance.patient
 
-        # Prevent duplicate bookings for the same patient/doctor/date in a facility.
-        patient = attrs.get('patient')
-        doctor = attrs.get('doctor', self.instance.doctor if self.instance else None)
-        date = attrs.get('date', self.instance.date if self.instance else None)
+        # Create-only guard: prevent booking the same doctor twice on the same day.
+        if self.instance is None:
+            doctor = attrs.get('doctor')
+            date = attrs.get('date')
+            if doctor and date:
+                has_conflict = Appointment.objects.filter(
+                    facility_id=facility_id,
+                    doctor=doctor,
+                    date=date,
+                    is_active=True,
+                ).exists()
+                if has_conflict:
+                    raise serializers.ValidationError(
+                        {
+                            'doctor': (
+                                'This doctor already has an appointment on this day. '
+                                'Please reschedule to another day.'
+                            )
+                        }
+                    )
 
-        if patient and doctor and date:
-            duplicate_appointments = Appointment.objects.filter(
-                facility_id=facility_id,
-                patient=patient,
-                doctor=doctor,
-                date=date,
-                is_active=True,
-            ).exclude(status='Cancelled')
-
-            if self.instance is not None:
-                duplicate_appointments = duplicate_appointments.exclude(pk=self.instance.pk)
-
-            if duplicate_appointments.exists():
-                raise serializers.ValidationError(
-                    {'non_field_errors': ['You already have an appointment with this doctor on this day. Please reschedule.']}
-                )
+        # Update-only guard: enforce slot availability only when rescheduling.
+        if self.instance is not None and any(
+            field in attrs for field in ['doctor', 'date', 'time']
+        ):
+            doctor = attrs.get('doctor', self.instance.doctor)
+            date = attrs.get('date', self.instance.date)
+            time = attrs.get('time', self.instance.time)
+            if doctor and date and time:
+                has_conflict = Appointment.objects.filter(
+                    facility_id=facility_id,
+                    doctor=doctor,
+                    date=date,
+                    time=time,
+                    is_active=True,
+                ).exclude(pk=self.instance.pk).exists()
+                if has_conflict:
+                    raise serializers.ValidationError(
+                        {
+                            'doctor': (
+                                'This doctor already has an appointment at that date and time. '
+                                'Please reschedule to another time.'
+                            )
+                        }
+                    )
 
         return attrs
 
