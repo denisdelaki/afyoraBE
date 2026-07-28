@@ -1,9 +1,9 @@
 # apps/core/urls.py
 
-from django.urls import path, include
+from django.urls import path, include, re_path
 from rest_framework.routers import DefaultRouter
 from .views import (
-    SignupView, LoginView, LogoutView, CompleteOnboardingView, UserViewSet,
+    SignupView, LoginView, RefreshView, LogoutView, CompleteOnboardingView, UserViewSet,
     FacilityViewSet, DepartmentViewSet
 )
 
@@ -34,6 +34,8 @@ urlpatterns = [
     # Authentication endpoints (no prefix)
     path('auth/signup/', SignupView.as_view(), name='signup'),
     path('auth/login/', LoginView.as_view(), name='login'),
+    path('auth/refresh/', RefreshView.as_view(), name='refresh'),
+    re_path(r'^auth/refresh$', RefreshView.as_view()),
     path('auth/logout/', LogoutView.as_view(), name='logout'),
     path('auth/onboarding/complete/', CompleteOnboardingView.as_view(), name='complete-onboarding'),
     

@@ -8,6 +8,7 @@ from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.authtoken.models import Token
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 from django.utils import timezone
 from django.db import transaction
 from .models import User, Facility, Department, FacilityOnboarding, AuditLog
@@ -258,6 +259,45 @@ class LoginView(APIView):
             'message': 'Login successful'
         }
         
+        return Response(response_data, status=status.HTTP_200_OK)
+
+
+class RefreshView(APIView):
+    """
+    POST /api/auth/refresh or /api/auth/refresh/
+
+    Refreshes JWT access token and (optionally) rotates refresh token.
+    Accepts both `refresh` and frontend camelCase `refreshToken` keys.
+    """
+
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        incoming_refresh = (
+            request.data.get('refresh')
+            or request.data.get('refresh_token')
+            or request.data.get('refreshToken')
+        )
+
+        if not incoming_refresh:
+            return Response(
+                {
+                    'error': 'Validation failed',
+                    'details': {'refresh': ['This field is required.']},
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = TokenRefreshSerializer(data={'refresh': incoming_refresh})
+        serializer.is_valid(raise_exception=True)
+
+        token_data = serializer.validated_data
+        response_data = {'access_token': token_data.get('access')}
+
+        # Only present when token rotation is enabled.
+        if token_data.get('refresh'):
+            response_data['refresh_token'] = token_data['refresh']
+
         return Response(response_data, status=status.HTTP_200_OK)
 
 

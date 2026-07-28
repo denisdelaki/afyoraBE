@@ -2,6 +2,7 @@ from django.test import TestCase
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import Facility, FacilityOnboarding, User
 
@@ -45,6 +46,42 @@ class AuthViewTests(TestCase):
 
 		self.assertEqual(response.status_code, status.HTTP_200_OK)
 		self.assertEqual(response.data['message'], 'Logout successful')
+
+	def test_refresh_accepts_camel_case_refresh_token(self):
+		user = User.objects.create_user(
+			username='refresh_user',
+			email='refresh-user@example.com',
+			password='StrongPass123!',
+			role='staff',
+		)
+		refresh = RefreshToken.for_user(user)
+
+		response = self.client.post(
+			reverse('refresh'),
+			{'refreshToken': str(refresh)},
+			format='json',
+		)
+
+		self.assertEqual(response.status_code, status.HTTP_200_OK)
+		self.assertIn('access_token', response.data)
+
+	def test_refresh_works_without_trailing_slash(self):
+		user = User.objects.create_user(
+			username='refresh_no_slash_user',
+			email='refresh-no-slash@example.com',
+			password='StrongPass123!',
+			role='staff',
+		)
+		refresh = RefreshToken.for_user(user)
+
+		response = self.client.post(
+			'/api/auth/refresh',
+			{'refreshToken': str(refresh)},
+			format='json',
+		)
+
+		self.assertEqual(response.status_code, status.HTTP_200_OK)
+		self.assertIn('access_token', response.data)
 
 
 class DepartmentViewSetTests(TestCase):
