@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.utils import timezone
 
-from .models import Patient
+from .models import Patient, PatientVisit
 
 
 class PatientSerializer(serializers.ModelSerializer):
@@ -108,3 +108,80 @@ class PatientSerializer(serializers.ModelSerializer):
             patient_id=patient_id,
             **validated_data,
         )
+
+
+class PatientVisitSerializer(serializers.ModelSerializer):
+    patientId = serializers.CharField(write_only=True)
+    facilityId = serializers.IntegerField(source='facility_id')
+    date = serializers.DateField(source='visit_date')
+    doctor = serializers.CharField(source='served_by')
+    amountBilled = serializers.DecimalField(
+        source='amount_billed',
+        max_digits=10,
+        decimal_places=2,
+        min_value=0,
+    )
+    whatHappened = serializers.CharField(source='what_happened', required=False, allow_blank=True)
+
+    class Meta:
+        model = PatientVisit
+        fields = [
+            'id',
+            'facilityId',
+            'patientId',
+            'date',
+            'doctor',
+            'diagnosis',
+            'prescription',
+            'whatHappened',
+            'amountBilled',
+            'is_active',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'is_active', 'created_at', 'updated_at']
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+
+        patient_external_id = attrs.pop('patientId', None)
+        facility_id = attrs.get('facility_id')
+
+        if self.instance is None and not patient_external_id:
+            raise serializers.ValidationError({'patientId': 'patientId is required.'})
+
+        if self.instance is not None and patient_external_id:
+            if patient_external_id != self.instance.patient.patient_id:
+                raise serializers.ValidationError(
+                    {'patientId': 'A visit cannot be reassigned to another patient.'}
+                )
+
+        if self.instance is None and facility_id is None:
+            raise serializers.ValidationError({'facilityId': 'facilityId is required.'})
+
+        target_facility_id = facility_id if facility_id is not None else self.instance.facility_id
+
+        if patient_external_id:
+            patient = Patient.objects.filter(
+                patient_id=patient_external_id,
+                facility_id=target_facility_id,
+                is_active=True,
+            ).first()
+            if patient is None:
+                raise serializers.ValidationError(
+                    {'patientId': 'Patient not found for the provided facilityId.'}
+                )
+            attrs['patient'] = patient
+
+        if self.instance is not None and 'facility_id' in attrs:
+            if attrs['facility_id'] != self.instance.facility_id:
+                raise serializers.ValidationError(
+                    {'facilityId': 'A visit cannot be moved to another facility.'}
+                )
+
+        return attrs
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data['patientId'] = instance.patient.patient_id
+        return data

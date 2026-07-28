@@ -72,3 +72,32 @@ class Patient(BaseModel):
 
 	def __str__(self):
 		return f"{self.patient_id} - {self.first_name} {self.last_name}"
+
+
+class PatientVisit(BaseModel):
+	facility = models.ForeignKey(
+		Facility,
+		on_delete=models.CASCADE,
+		related_name='patient_visits',
+	)
+	patient = models.ForeignKey(
+		Patient,
+		on_delete=models.CASCADE,
+		related_name='visits',
+	)
+	visit_date = models.DateField()
+	served_by = models.CharField(max_length=150)
+	diagnosis = models.CharField(max_length=255, blank=True)
+	prescription = models.CharField(max_length=255, blank=True)
+	what_happened = models.TextField(blank=True)
+	amount_billed = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+
+	class Meta:
+		ordering = ['-visit_date', '-created_at']
+		indexes = [
+			models.Index(fields=['facility', 'patient', 'visit_date']),
+			models.Index(fields=['facility', 'visit_date']),
+		]
+
+	def __str__(self):
+		return f"Visit {self.id} - {self.patient.patient_id} on {self.visit_date}"
