@@ -1,7 +1,19 @@
 from rest_framework import serializers
 from django.utils import timezone
 
-from .models import Patient, PatientVisit
+from .models import EhrRecord, Patient, PatientVisit
+
+
+class DrugSerializer(serializers.Serializer):
+    name = serializers.CharField()
+    quantity = serializers.IntegerField(min_value=0)
+    dosage = serializers.CharField(required=False, allow_blank=True, default='')
+
+
+class PrescriptionItemSerializer(serializers.Serializer):
+    drugs = DrugSerializer(many=True, default=list)
+    status = serializers.CharField(required=False, allow_blank=True, default='Pending')
+    date = serializers.DateField(required=False, allow_null=True, default=None)
 
 
 class PatientSerializer(serializers.ModelSerializer):
@@ -122,6 +134,7 @@ class PatientVisitSerializer(serializers.ModelSerializer):
         min_value=0,
     )
     whatHappened = serializers.CharField(source='what_happened', required=False, allow_blank=True)
+    prescriptions = PrescriptionItemSerializer(many=True, required=False, default=list)
 
     class Meta:
         model = PatientVisit
@@ -133,6 +146,7 @@ class PatientVisitSerializer(serializers.ModelSerializer):
             'doctor',
             'diagnosis',
             'prescription',
+            'prescriptions',
             'whatHappened',
             'amountBilled',
             'is_active',
@@ -140,6 +154,19 @@ class PatientVisitSerializer(serializers.ModelSerializer):
             'updated_at',
         ]
         read_only_fields = ['id', 'is_active', 'created_at', 'updated_at']
+
+    def validate_prescriptions(self, value):
+        serializer = PrescriptionItemSerializer(data=value, many=True)
+        serializer.is_valid(raise_exception=True)
+        result = []
+        for item in serializer.validated_data:
+            entry = {
+                'drugs': [dict(d) for d in item.get('drugs', [])],
+                'status': item.get('status', 'Pending'),
+                'date': item['date'].isoformat() if item.get('date') is not None else None,
+            }
+            result.append(entry)
+        return result
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
@@ -177,6 +204,81 @@ class PatientVisitSerializer(serializers.ModelSerializer):
             if attrs['facility_id'] != self.instance.facility_id:
                 raise serializers.ValidationError(
                     {'facilityId': 'A visit cannot be moved to another facility.'}
+                )
+
+        return attrs
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data['patientId'] = instance.patient.patient_id
+        return data
+
+
+class EhrRecordSerializer(serializers.ModelSerializer):
+    patientId = serializers.CharField(write_only=True, required=False)
+    facilityId = serializers.IntegerField(source='facility_id', required=False)
+    doctorNotes = serializers.CharField(source='doctor_notes', required=False, allow_blank=True)
+    prescriptions = serializers.SerializerMethodField()
+    labResults = serializers.SerializerMethodField()
+    notes = serializers.CharField(source='doctor_notes', read_only=True)
+
+    class Meta:
+        model = EhrRecord
+        fields = [
+            'id',
+            'facilityId',
+            'patientId',
+            'date',
+            'doctor',
+            'diagnosis',
+            'symptoms',
+            'treatment',
+            'doctorNotes',
+            'prescriptions',
+            'labResults',
+            'notes',
+            'is_active',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'date', 'prescriptions', 'labResults', 'notes', 'is_active', 'created_at', 'updated_at']
+
+    def get_prescriptions(self, obj):
+        return [item.strip() for item in (obj.treatment or '').split('\n') if item.strip()]
+
+    def get_labResults(self, obj):
+        return []
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+
+        patient_external_id = attrs.pop('patientId', None)
+        facility_id = attrs.get('facility_id')
+
+        if self.instance is None and not patient_external_id:
+            raise serializers.ValidationError({'patientId': 'patientId is required.'})
+
+        if self.instance is None and facility_id is None:
+            raise serializers.ValidationError({'facilityId': 'facilityId is required.'})
+
+        target_facility_id = facility_id if facility_id is not None else self.instance.facility_id
+
+        if patient_external_id:
+            patient = Patient.objects.filter(
+                patient_id=patient_external_id,
+                facility_id=target_facility_id,
+                is_active=True,
+            ).first()
+            if patient is None:
+                raise serializers.ValidationError(
+                    {'patientId': 'Patient not found for the provided facilityId.'}
+                )
+            attrs['patient'] = patient
+
+        if self.instance is not None and 'facility_id' in attrs:
+            if attrs['facility_id'] != self.instance.facility_id:
+                raise serializers.ValidationError(
+                    {'facilityId': 'An EHR record cannot be moved to another facility.'}
                 )
 
         return attrs

@@ -89,6 +89,7 @@ class PatientVisit(BaseModel):
 	served_by = models.CharField(max_length=150)
 	diagnosis = models.CharField(max_length=255, blank=True)
 	prescription = models.CharField(max_length=255, blank=True)
+	prescriptions = models.JSONField(default=list, blank=True)
 	what_happened = models.TextField(blank=True)
 	amount_billed = models.DecimalField(max_digits=10, decimal_places=2, default=0)
 
@@ -101,3 +102,32 @@ class PatientVisit(BaseModel):
 
 	def __str__(self):
 		return f"Visit {self.id} - {self.patient.patient_id} on {self.visit_date}"
+
+
+class EhrRecord(BaseModel):
+	facility = models.ForeignKey(
+		Facility,
+		on_delete=models.CASCADE,
+		related_name='ehr_records',
+	)
+	patient = models.ForeignKey(
+		Patient,
+		on_delete=models.CASCADE,
+		related_name='ehr_records',
+	)
+	date = models.DateField(auto_now_add=True)
+	doctor = models.CharField(max_length=150)
+	diagnosis = models.CharField(max_length=255)
+	symptoms = models.TextField(blank=True)
+	treatment = models.TextField(blank=True)
+	doctor_notes = models.TextField(blank=True)
+
+	class Meta:
+		ordering = ['-date', '-created_at']
+		indexes = [
+			models.Index(fields=['facility', 'patient', 'date']),
+			models.Index(fields=['facility', 'date']),
+		]
+
+	def __str__(self):
+		return f"EHR {self.id} - {self.patient.patient_id} on {self.date}"
