@@ -182,8 +182,20 @@ class PatientVisitViewSet(viewsets.ModelViewSet):
 		if instance.facility_id != facility_id:
 			raise PermissionDenied('You cannot delete visits from another facility.')
 
+		linked_prescription = instance.prescription_record
+
 		instance.is_active = False
 		instance.save(update_fields=['is_active', 'updated_at'])
+
+		if linked_prescription is not None:
+			is_used_elsewhere = PatientVisit.objects.filter(
+				prescription_record=linked_prescription,
+				is_active=True,
+			).exclude(id=instance.id).exists()
+
+			if not is_used_elsewhere and linked_prescription.is_active:
+				linked_prescription.is_active = False
+				linked_prescription.save(update_fields=['is_active', 'updated_at'])
 
 
 class EhrRecordViewSet(viewsets.ModelViewSet):

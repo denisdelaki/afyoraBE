@@ -88,6 +88,13 @@ class PatientVisit(BaseModel):
 	visit_date = models.DateField()
 	served_by = models.CharField(max_length=150)
 	diagnosis = models.CharField(max_length=255, blank=True)
+	prescription_record = models.ForeignKey(
+		'pharmacy.Prescription',
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='visit_histories',
+	)
 	prescription = models.CharField(max_length=255, blank=True)
 	prescriptions = models.JSONField(default=list, blank=True)
 	what_happened = models.TextField(blank=True)
