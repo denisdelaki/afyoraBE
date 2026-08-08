@@ -279,7 +279,10 @@ class DepartmentAdmin(admin.ModelAdmin):
     facility_name.short_description = 'Facility'
     
     def head_name(self, obj):
-        return obj.head.get_full_name() if obj.head else 'Unassigned'
+        if obj.head:
+            return obj.head.get_full_name() or obj.head.username
+
+        return obj.head_name or 'Unassigned'
     head_name.short_description = 'Department Head'
 
 

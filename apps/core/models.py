@@ -269,6 +269,7 @@ class Department(BaseModel):
         related_name='headed_departments'
         # A doctor can head multiple departments
     )
+    head_name = models.CharField(max_length=150, blank=True)
     
     # Contact
     email = models.EmailField(blank=True)

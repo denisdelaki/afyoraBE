@@ -464,10 +464,8 @@ class DepartmentSerializer(serializers.ModelSerializer):
     """
     Department management serializer.
     """
-    head_name = serializers.CharField(
-        source='head.get_full_name',
-        read_only=True
-    )
+    head = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    head_name = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     
     class Meta:
         model = Department
@@ -477,20 +475,64 @@ class DepartmentSerializer(serializers.ModelSerializer):
             'created_at'
         ]
         read_only_fields = ['id', 'created_at']
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+
+        if instance.head is not None:
+            data['head'] = str(instance.head.pk)
+            data['head_name'] = instance.head.get_full_name() or instance.head.username
+        else:
+            data['head'] = instance.head_name
+            data['head_name'] = instance.head_name
+
+        return data
+
+    def validate_head(self, value):
+        if value is None:
+            return ''
+
+        return value.strip()
     
     def validate(self, data):
         """Check department name is unique within facility"""
         facility = self.context['request'].user.facility
+        instance = getattr(self, 'instance', None)
+        department_name = data.get('name')
         
-        if Department.objects.filter(
+        if department_name and Department.objects.filter(
             facility=facility,
-            name__iexact=data.get('name')
-        ).exists():
+            name__iexact=department_name
+        ).exclude(pk=getattr(instance, 'pk', None)).exists():
             raise serializers.ValidationError(
                 "A department with this name already exists."
             )
-        
+
         return data
+
+    def create(self, validated_data):
+        head_value = validated_data.pop('head', '')
+
+        if isinstance(head_value, User):
+            validated_data['head'] = head_value
+            validated_data['head_name'] = head_value.get_full_name() or head_value.username
+        else:
+            validated_data['head'] = None
+            validated_data['head_name'] = head_value
+
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        head_value = validated_data.pop('head', instance.head_name)
+
+        if isinstance(head_value, User):
+            validated_data['head'] = head_value
+            validated_data['head_name'] = head_value.get_full_name() or head_value.username
+        else:
+            validated_data['head'] = None
+            validated_data['head_name'] = head_value
+
+        return super().update(instance, validated_data)
 
 
 # ============================================================================
