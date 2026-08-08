@@ -3,7 +3,9 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from django.db import transaction
 from django.http import Http404
+from django.utils import timezone
 
 from core.models import Facility
 from .models import Drug, Prescription
@@ -211,16 +213,84 @@ class PrescriptionViewSet(FacilityScopedPharmacyViewSet):
 		if prescription.facility_id != facility.id:
 			raise PermissionDenied('You cannot dispense prescriptions from another facility.')
 
-		if prescription.status == 'Dispensed':
-			serializer = self.get_serializer(prescription)
-			return Response(serializer.data, status=status.HTTP_200_OK)
+		with transaction.atomic():
+			locked_prescription = (
+				Prescription.objects.select_for_update()
+				.filter(pk=prescription.pk, facility_id=facility.id)
+				.first()
+			)
 
-		serializer = self.get_serializer(
-			prescription,
-			data={'status': 'Dispensed'},
-			partial=True,
-		)
-		serializer.is_valid(raise_exception=True)
-		serializer.save()
+			if locked_prescription is None:
+				raise Http404
 
+			if locked_prescription.status == 'Dispensed':
+				serializer = self.get_serializer(locked_prescription)
+				return Response(serializer.data, status=status.HTTP_200_OK)
+
+			today = timezone.localdate()
+			drug_updates = []
+			for index, item in enumerate(locked_prescription.drugs or []):
+				if not isinstance(item, dict):
+					raise ValidationError(
+						{'drugs': f'Invalid drug payload at index {index}.'}
+					)
+
+				drug_id = str(item.get('id') or '').strip()
+				drug_name = str(item.get('name') or '').strip()
+				quantity = item.get('quantity')
+
+				try:
+					quantity = int(quantity)
+				except (TypeError, ValueError):
+					raise ValidationError(
+						{'drugs': f'Invalid quantity for drug at index {index}.'}
+					)
+
+				if quantity <= 0:
+					raise ValidationError(
+						{'drugs': f'Quantity must be greater than zero at index {index}.'}
+					)
+
+				drug_qs = Drug.objects.select_for_update().filter(
+					facility_id=facility.id,
+					is_active=True,
+				)
+
+				drug = None
+				if drug_id:
+					drug = drug_qs.filter(drug_id=drug_id).first()
+
+				if drug is None and drug_name:
+					drug = drug_qs.filter(name__iexact=drug_name).first()
+
+				if drug is None:
+					raise ValidationError(
+						{'drugs': f'Drug not found at index {index}.'}
+					)
+
+				if drug.expiry_date and drug.expiry_date < today:
+					raise ValidationError(
+						{'drugs': f'Drug {drug.name} is expired and cannot be dispensed.'}
+					)
+
+				if drug.stock < quantity:
+					raise ValidationError(
+						{
+							'drugs': (
+								f'Insufficient stock for {drug.name}. '
+								f'Available: {drug.stock}, requested: {quantity}.'
+							)
+						}
+					)
+
+				drug_updates.append((drug, quantity))
+
+			for drug, quantity in drug_updates:
+				drug.stock -= quantity
+				drug.save(update_fields=['stock', 'updated_at'])
+
+			locked_prescription.status = 'Dispensed'
+			locked_prescription.save(update_fields=['status', 'updated_at'])
+
+		serializer = self.get_serializer(locked_prescription)
 		return Response(serializer.data, status=status.HTTP_200_OK)
