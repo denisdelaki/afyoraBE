@@ -45,8 +45,16 @@ def parse_hosts(value):
         hosts.append(cleaned)
     return hosts
 
-default_allowed_hosts = '*' if DEBUG else 'afyorabe.onrender.com'
-ALLOWED_HOSTS = parse_hosts(config('ALLOWED_HOSTS', default=default_allowed_hosts))
+allowed_hosts_env = config('ALLOWED_HOSTS', default='').strip()
+ALLOWED_HOSTS = parse_hosts(allowed_hosts_env) if allowed_hosts_env else (['*'] if DEBUG else [])
+
+render_hostname = config('RENDER_EXTERNAL_HOSTNAME', default='').strip()
+required_hosts = ['afyorabe.onrender.com']
+if render_hostname:
+    required_hosts.append(render_hostname)
+for host in required_hosts:
+    if host and host not in ALLOWED_HOSTS:
+        ALLOWED_HOSTS.append(host)
 
 
 # Application definition
