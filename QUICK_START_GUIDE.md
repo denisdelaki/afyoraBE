@@ -337,8 +337,8 @@ curl -X POST http://localhost:8000/api/auth/login/ \
 
 ```json
 {
-  "access_token": "eyJhbGciOiJIUzI1NiIs...",
-  "refresh_token": "eyJhbGciOiJIUzI1NiIs...",
+  "access_token": "...",
+  "refresh_token": "...",
   "user": {
     "id": 1,
     "email": "john@hospital.com",

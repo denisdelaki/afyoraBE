@@ -3,8 +3,21 @@ services:
     name: afyoraBE
     env: python
     plan: free
-    buildCommand: pip install -r requirements.txt && python manage.py migrate
+    buildCommand: pip install -r requirements.txt
+    preDeployCommand: python manage.py migrate --noinput
     startCommand: gunicorn afyoraBE.wsgi:application
     envVars:
       - key: PYTHON_VERSION
         value: 3.14
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ENVIRONMENT
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: afyorabe-db
+          property: connectionString
+
+databases:
+  - name: afyorabe-db
+    plan: free

@@ -12,6 +12,8 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 
 from pathlib import Path
 import sys
+from urllib.parse import parse_qs, urlparse
+from django.core.management.utils import get_random_secret_key
 from decouple import config  
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -25,15 +27,26 @@ if str(APPS_DIR) not in sys.path:
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-kbue*u^4%qn50n6taqj!aqkh5psf3wx1o^1g71vd@9hl&wexd*'
+SECRET_KEY = config('SECRET_KEY', default=get_random_secret_key())
+
+ENVIRONMENT = config('ENVIRONMENT', default='development')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = config('DEBUG', default=ENVIRONMENT == 'development', cast=bool)
 
-ALLOWED_HOSTS = [
-    "https://afyorabe.onrender.com"
-]
+
+def parse_hosts(value):
+    hosts = []
+    for item in value.split(','):
+        cleaned = item.strip()
+        if not cleaned:
+            continue
+        cleaned = cleaned.replace('https://', '').replace('http://', '').split('/')[0]
+        hosts.append(cleaned)
+    return hosts
+
+default_allowed_hosts = '*' if DEBUG else 'afyorabe.onrender.com'
+ALLOWED_HOSTS = parse_hosts(config('ALLOWED_HOSTS', default=default_allowed_hosts))
 
 
 # Application definition
@@ -118,12 +131,46 @@ WSGI_APPLICATION = 'afyoraBE.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+
+def build_database_config():
+    database_url = config('DATABASE_URL', default='').strip()
+    if not database_url:
+        return {
+            'default': {
+                'ENGINE': 'django.db.backends.sqlite3',
+                'NAME': BASE_DIR / 'db.sqlite3',
+            }
+        }
+
+    parsed = urlparse(database_url)
+    engine_map = {
+        'postgres': 'django.db.backends.postgresql',
+        'postgresql': 'django.db.backends.postgresql',
+        'pgsql': 'django.db.backends.postgresql',
     }
-}
+    engine = engine_map.get(parsed.scheme)
+    if not engine:
+        raise ValueError(f'Unsupported DATABASE_URL scheme: {parsed.scheme}')
+
+    query_params = parse_qs(parsed.query)
+
+    return {
+        'default': {
+            'ENGINE': engine,
+            'NAME': parsed.path.lstrip('/'),
+            'USER': parsed.username or '',
+            'PASSWORD': parsed.password or '',
+            'HOST': parsed.hostname or '',
+            'PORT': parsed.port or '',
+            'CONN_MAX_AGE': config('DB_CONN_MAX_AGE', default=600, cast=int),
+            'OPTIONS': {
+                'sslmode': query_params.get('sslmode', ['require'])[0],
+            },
+        }
+    }
+
+
+DATABASES = build_database_config()
 
 AUTH_USER_MODEL = 'core.User'
 
@@ -368,25 +415,3 @@ CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
  
-# ============================================================================
-# ENVIRONMENT-SPECIFIC SETTINGS
-# ============================================================================
-# Load different settings based on environment
- 
-ENVIRONMENT = config('ENVIRONMENT', default='development')
- 
-if ENVIRONMENT == 'production':
-    # Production settings
-    SECURE_SSL_REDIRECT = True
-    DEBUG = False
-    ALLOWED_HOSTS = ['yourdomain.com', 'www.yourdomain.com']
- 
-elif ENVIRONMENT == 'staging':
-    # Staging settings (test environment)
-    DEBUG = False
-    ALLOWED_HOSTS = ['staging.yourdomain.com']
- 
-else:
-    # Development settings
-    DEBUG = True
-    ALLOWED_HOSTS = ['*']
