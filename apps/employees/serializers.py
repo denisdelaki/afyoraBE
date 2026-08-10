@@ -1,7 +1,14 @@
+import logging
+
+from django.db import transaction
+
 from rest_framework import serializers
 
 from core.models import Department, User
 from .models import Employee
+from .utils import generate_temp_password, send_employee_credentials
+
+logger = logging.getLogger(__name__)
 
 
 class EmployeeSerializer(serializers.ModelSerializer):
@@ -175,8 +182,64 @@ class EmployeeSerializer(serializers.ModelSerializer):
             next_number += 1
             employee_id = f'EMP{next_number:03d}'
 
-        return Employee.objects.create(
+        with transaction.atomic():
+            employee = Employee.objects.create(
+                facility=facility,
+                employee_id=employee_id,
+                **validated_data,
+            )
+
+            email = employee.email.strip() if employee.email else ''
+            if email:
+                self._provision_user_account(employee, facility, employee_id)
+
+        return employee
+
+    def _provision_user_account(self, employee, facility, employee_id):
+        """Create a User login account and email credentials to the employee."""
+        email = employee.email.strip()
+
+        # Use email as username; skip if an account already exists for this email.
+        if User.objects.filter(username=email).exists():
+            logger.info(
+                "User account already exists for %s — skipping credential email.", email
+            )
+            return
+
+        role = employee.role
+        # Map employee role to a valid User.ROLE_CHOICES value.
+        allowed_roles = {value for value, _ in User.ROLE_CHOICES}
+        user_role = role if role in allowed_roles else 'staff'
+
+        name_parts = employee.name.strip().split(" ", 1)
+        first_name = name_parts[0]
+        last_name = name_parts[1] if len(name_parts) > 1 else ''
+
+        temp_password = generate_temp_password()
+
+        User.objects.create_user(
+            username=email,
+            email=email,
+            password=temp_password,
+            first_name=first_name,
+            last_name=last_name,
             facility=facility,
+            role=user_role,
             employee_id=employee_id,
-            **validated_data,
+            department=employee.department,
+            phone=employee.phone,
         )
+
+        try:
+            send_employee_credentials(
+                employee_name=employee.name,
+                email=email,
+                username=email,
+                password=temp_password,
+                facility_name=facility.name,
+            )
+        except Exception:
+            # Log but do not roll back — the account was created successfully.
+            logger.exception(
+                "Failed to send credential email to %s. Account was still created.", email
+            )
