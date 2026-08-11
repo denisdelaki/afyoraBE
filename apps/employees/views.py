@@ -128,10 +128,12 @@ class EmployeeViewSet(viewsets.ModelViewSet):
 				employee_id=employee.employee_id,
 				department=employee.department,
 				phone=employee.phone,
+				must_change_password=True,
 			)
 		else:
 			user.set_password(temp_password)
-			user.save(update_fields=['password'])
+			user.must_change_password = True
+			user.save(update_fields=['password', 'must_change_password'])
 
 		send_employee_credentials(
 			employee_name=employee.name,

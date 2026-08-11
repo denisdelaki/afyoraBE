@@ -237,6 +237,7 @@ class EmployeeSerializer(serializers.ModelSerializer):
             employee_id=employee_id,
             department=employee.department,
             phone=employee.phone,
+            must_change_password=True,
         )
 
         def _send():

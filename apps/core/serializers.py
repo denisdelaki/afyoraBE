@@ -142,7 +142,7 @@ class UserSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'username', 'email', 'first_name', 'last_name',
             'role', 'facility', 'facility_name', 'phone',
-            'department', 'is_active', 'is_verified', 'created_at'
+            'department', 'is_active', 'is_verified', 'must_change_password', 'created_at'
         ]
         read_only_fields = ['id', 'created_at']
 
@@ -160,7 +160,7 @@ class UserDetailSerializer(serializers.ModelSerializer):
             'role', 'phone', 'date_of_birth', 'profile_picture',
             'facility', 'facility_name', 'employee_id', 'department',
             'license_number', 'specialization', 'is_active',
-            'is_verified', 'last_login', 'created_at', 'updated_at'
+            'is_verified', 'must_change_password', 'last_login', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'last_login', 'created_at', 'updated_at']
 
@@ -404,29 +404,43 @@ class SignupSerializer(serializers.Serializer):
 
 class LoginSerializer(serializers.Serializer):
     """
-    Handles user login authentication.
+    Handles user login authentication and optional first-time password update.
     """
     
     email = serializers.EmailField(required=True)
     password = serializers.CharField(
         write_only=True,
         required=True,
-        min_length=8
+        min_length=1
     )
     remember_me = serializers.BooleanField(
         required=False,
         default=False
     )
+    old_password = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    new_password = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    confirm_password = serializers.CharField(required=False, allow_blank=True, write_only=True)
     
+    def to_internal_value(self, data):
+        payload = dict(data)
+        if not payload.get('old_password') and payload.get('oldPassword'):
+            payload['old_password'] = payload.get('oldPassword')
+        if not payload.get('new_password') and payload.get('newPassword'):
+            payload['new_password'] = payload.get('newPassword')
+        if not payload.get('confirm_password') and payload.get('confirmPassword'):
+            payload['confirm_password'] = payload.get('confirmPassword')
+        return super().to_internal_value(payload)
+
     def validate(self, data):
         """
         Authenticate user with email and password.
         """
         email = data.get('email')
         password = data.get('password')
+        old_password = data.get('old_password') or password
+        new_password = data.get('new_password')
+        confirm_password = data.get('confirm_password')
         
-        # Django authenticate() expects username, not email
-        # Get user first
         try:
             user = User.objects.get(email=email)
         except User.DoesNotExist:
@@ -434,23 +448,43 @@ class LoginSerializer(serializers.Serializer):
                 "Invalid email or password."
             )
         
-        # Check password
-        if not user.check_password(password):
+        if not user.check_password(password) and not user.check_password(old_password):
             raise serializers.ValidationError(
                 "Invalid email or password."
             )
         
-        # Check if account is active
         if not user.is_active:
             raise serializers.ValidationError(
                 "This account has been deactivated."
             )
         
-        # Check if facility is still subscribed
         if user.facility and not user.facility.subscription_active:
             raise serializers.ValidationError(
                 "Your facility's subscription has expired."
             )
+
+        if getattr(user, 'must_change_password', False):
+            if not new_password:
+                data['require_password_change'] = True
+                data['user'] = user
+                return data
+
+            if new_password != confirm_password:
+                raise serializers.ValidationError(
+                    {"confirm_password": "New password and confirm password do not match."}
+                )
+
+            if len(new_password) < 8:
+                raise serializers.ValidationError(
+                    {"new_password": "New password must be at least 8 characters long."}
+                )
+
+            if new_password == password or new_password == old_password:
+                raise serializers.ValidationError(
+                    {"new_password": "New password must be different from your temporary password."}
+                )
+
+            data['perform_password_change'] = True
         
         data['user'] = user
         return data

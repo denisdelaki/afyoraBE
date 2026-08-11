@@ -225,6 +225,23 @@ class LoginView(APIView):
         
         # Get authenticated user
         user = serializer.validated_data['user']
+
+        if serializer.validated_data.get('require_password_change'):
+            return Response(
+                {
+                    'require_password_change': True,
+                    'first_login': True,
+                    'email': user.email,
+                    'message': 'First time login detected. Please update your password to proceed.',
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        if serializer.validated_data.get('perform_password_change'):
+            new_password = serializer.validated_data.get('new_password')
+            user.set_password(new_password)
+            user.must_change_password = False
+            user.save(update_fields=['password', 'must_change_password', 'updated_at'])
         
         # Generate JWT tokens
         # JWT = JSON Web Token (stateless authentication)

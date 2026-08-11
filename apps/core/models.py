@@ -173,6 +173,9 @@ class User(AbstractUser, BaseModel):
     is_verified = models.BooleanField(default=False)
     # Email verified?
     
+    must_change_password = models.BooleanField(default=False)
+    # Flag to force password update on next login (e.g. for first time onboarded users)
+    
     last_login_ip = models.GenericIPAddressField(null=True, blank=True)
     last_login_device = models.CharField(max_length=100, blank=True)
     
