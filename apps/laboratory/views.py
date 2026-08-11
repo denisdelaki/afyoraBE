@@ -178,14 +178,32 @@ class LabRequestViewSet(FacilityScopedLaboratoryViewSet):
 			result.is_active = False
 			result.save(update_fields=['is_active', 'updated_at'])
 
-	@action(detail=True, methods=['post', 'patch'])
+	@action(detail=True, methods=['post', 'patch', 'put'])
 	def start(self, request, request_id=None):
 		request_obj = self.get_object()
 		if request_obj.status == 'Approved':
 			return Response(self.get_serializer(request_obj).data, status=status.HTTP_200_OK)
 
-		request_obj.status = 'In Progress'
+		new_status = request.data.get('status', 'In Progress')
+		valid_statuses = [choice[0] for choice in LabRequest.STATUS_CHOICES]
+		if new_status in valid_statuses:
+			request_obj.status = new_status
+		else:
+			request_obj.status = 'In Progress'
+
 		request_obj.save(update_fields=['status', 'updated_at'])
+		return Response(self.get_serializer(request_obj).data, status=status.HTTP_200_OK)
+
+	@action(detail=True, methods=['post', 'patch', 'put'])
+	def status(self, request, request_id=None):
+		request_obj = self.get_object()
+		new_status = request.data.get('status')
+		if new_status:
+			valid_statuses = [choice[0] for choice in LabRequest.STATUS_CHOICES]
+			if new_status not in valid_statuses:
+				raise ValidationError({'status': f'Invalid status. Allowed choices: {", ".join(valid_statuses)}'})
+			request_obj.status = new_status
+			request_obj.save(update_fields=['status', 'updated_at'])
 		return Response(self.get_serializer(request_obj).data, status=status.HTTP_200_OK)
 
 	@action(detail=True, methods=['post', 'patch'])

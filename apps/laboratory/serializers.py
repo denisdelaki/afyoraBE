@@ -101,6 +101,23 @@ class LabRequestSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'facilityId', 'is_active', 'created_at', 'updated_at']
 
+    def to_internal_value(self, data):
+        # Accept legacy/frontend aliases while preserving the canonical API fields.
+        payload = dict(data)
+
+        if not payload.get('testId') and payload.get('test'):
+            payload['testId'] = payload.get('test')
+
+        if not payload.get('orderedBy_employeeId'):
+            employee_id = payload.get('orderedByEmployeeId') or payload.get('orderedBy')
+            if employee_id:
+                payload['orderedBy_employeeId'] = employee_id
+
+        if not payload.get('orderedBy') and payload.get('orderedByName'):
+            payload['orderedBy'] = payload.get('orderedByName')
+
+        return super().to_internal_value(payload)
+
     def validate(self, attrs):
         attrs = super().validate(attrs)
 
@@ -179,6 +196,7 @@ class LabResultSerializer(serializers.ModelSerializer):
     patient = serializers.CharField(source='request.patient', read_only=True)
     test = serializers.CharField(source='request.test.name', read_only=True)
     parameters = LabResultParameterSerializer(many=True, required=False, default=list)
+    technician = serializers.CharField(required=False, allow_blank=True, default='')
     completedDate = serializers.DateField(source='completed_date', required=False)
     approvedBy = serializers.CharField(
         source='approved_by',
@@ -206,6 +224,14 @@ class LabResultSerializer(serializers.ModelSerializer):
             'updated_at',
         ]
         read_only_fields = ['id', 'facilityId', 'patient', 'test', 'is_active', 'created_at', 'updated_at']
+
+    def to_internal_value(self, data):
+        payload = dict(data)
+        if not payload.get('labId'):
+            lab_id = payload.get('labRequest') or payload.get('requestId') or payload.get('request_id')
+            if lab_id:
+                payload['labId'] = lab_id
+        return super().to_internal_value(payload)
 
     def validate_parameters(self, value):
         serializer = LabResultParameterSerializer(data=value, many=True)
@@ -245,9 +271,13 @@ class LabResultSerializer(serializers.ModelSerializer):
         if self.instance is None and 'completed_date' not in attrs:
             attrs['completed_date'] = timezone.localdate()
 
-        if self.instance is None and not attrs.get('technician'):
-            user = self.context.get('request').user
-            attrs['technician'] = f"{user.first_name} {user.last_name}".strip() or user.email
+        if not attrs.get('technician'):
+            req = self.context.get('request')
+            if req and hasattr(req, 'user') and req.user:
+                user = req.user
+                attrs['technician'] = f"{user.first_name} {user.last_name}".strip() or user.email or 'Lab Technician'
+            else:
+                attrs['technician'] = 'Lab Technician'
 
         return attrs
 
@@ -256,12 +286,13 @@ class LabResultSerializer(serializers.ModelSerializer):
         request = validated_data['request']
         validated_data['lab_id'] = request.request_id
 
-        result = LabResult.objects.create(
+        result, _ = LabResult.objects.update_or_create(
             facility=facility,
-            **validated_data,
+            request=request,
+            defaults=validated_data,
         )
 
-        if request.status != 'Completed':
+        if request.status != 'Completed' and request.status != 'Approved':
             request.status = 'Completed'
             request.save(update_fields=['status', 'updated_at'])
 
