@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.core import mail
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -106,8 +107,21 @@ class EmployeeApiTests(APITestCase):
 			'shift': 'Evening',
 		}
 
-		response = self.client.post('/api/employees/', payload, format='json')
+		with self.captureOnCommitCallbacks(execute=True):
+			response = self.client.post('/api/employees/', payload, format='json')
 
 		self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 		employee = Employee.objects.get(name='New Facility One Staff')
 		self.assertEqual(employee.facility_id, self.facility_one.id)
+		self.assertEqual(len(mail.outbox), 1)
+		self.assertIn('new.staff@f1.com', mail.outbox[0].to)
+
+	def test_resend_credentials_sends_email(self):
+		self._authenticate(self.user_one)
+		mail.outbox.clear()
+
+		response = self.client.post(f'/api/employees/{self.employee_one.id}/resend_credentials/')
+
+		self.assertEqual(response.status_code, status.HTTP_200_OK)
+		self.assertEqual(len(mail.outbox), 1)
+		self.assertIn('alice@f1.com', mail.outbox[0].to)

@@ -1,4 +1,4 @@
-from rest_framework import viewsets
+from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from core.models import Department, User
 from .models import Employee
 from .serializers import EmployeeSerializer
+from .utils import generate_temp_password, send_employee_credentials
 
 
 class EmployeeViewSet(viewsets.ModelViewSet):
@@ -97,3 +98,47 @@ class EmployeeViewSet(viewsets.ModelViewSet):
 				'departments': departments,
 			}
 		)
+
+	@action(detail=True, methods=['post'])
+	def resend_credentials(self, request, pk=None):
+		"""Reset password to a temporary password and resend credentials email."""
+		employee = self.get_object()
+		email = (employee.email or '').strip()
+
+		if not email:
+			raise ValidationError({'email': 'Employee does not have an email address configured.'})
+
+		user = User.objects.filter(username=email).first()
+		temp_password = generate_temp_password()
+
+		if user is None:
+			name_parts = employee.name.strip().split(" ", 1)
+			first_name = name_parts[0]
+			last_name = name_parts[1] if len(name_parts) > 1 else ''
+			user_role = employee.role if employee.role in {v for v, _ in User.ROLE_CHOICES} else 'staff'
+
+			user = User.objects.create_user(
+				username=email,
+				email=email,
+				password=temp_password,
+				first_name=first_name,
+				last_name=last_name,
+				facility=employee.facility,
+				role=user_role,
+				employee_id=employee.employee_id,
+				department=employee.department,
+				phone=employee.phone,
+			)
+		else:
+			user.set_password(temp_password)
+			user.save(update_fields=['password'])
+
+		send_employee_credentials(
+			employee_name=employee.name,
+			email=email,
+			username=email,
+			password=temp_password,
+			facility_name=employee.facility.name,
+		)
+
+		return Response({'detail': f'Credentials successfully sent to {email}.'}, status=status.HTTP_200_OK)

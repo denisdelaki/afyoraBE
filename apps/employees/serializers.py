@@ -195,6 +195,15 @@ class EmployeeSerializer(serializers.ModelSerializer):
 
         return employee
 
+    def update(self, instance, validated_data):
+        facility = self._get_request_facility()
+        with transaction.atomic():
+            employee = super().update(instance, validated_data)
+            email = employee.email.strip() if employee.email else ''
+            if email and facility is not None:
+                self._provision_user_account(employee, facility, employee.employee_id)
+        return employee
+
     def _provision_user_account(self, employee, facility, employee_id):
         """Create a User login account and email credentials to the employee."""
         email = employee.email.strip()
@@ -204,7 +213,7 @@ class EmployeeSerializer(serializers.ModelSerializer):
             logger.info(
                 "User account already exists for %s — skipping credential email.", email
             )
-            return
+            return None
 
         role = employee.role
         # Map employee role to a valid User.ROLE_CHOICES value.
@@ -217,7 +226,7 @@ class EmployeeSerializer(serializers.ModelSerializer):
 
         temp_password = generate_temp_password()
 
-        User.objects.create_user(
+        user = User.objects.create_user(
             username=email,
             email=email,
             password=temp_password,
@@ -230,16 +239,19 @@ class EmployeeSerializer(serializers.ModelSerializer):
             phone=employee.phone,
         )
 
-        try:
-            send_employee_credentials(
-                employee_name=employee.name,
-                email=email,
-                username=email,
-                password=temp_password,
-                facility_name=facility.name,
-            )
-        except Exception:
-            # Log but do not roll back — the account was created successfully.
-            logger.exception(
-                "Failed to send credential email to %s. Account was still created.", email
-            )
+        def _send():
+            try:
+                send_employee_credentials(
+                    employee_name=employee.name,
+                    email=email,
+                    username=email,
+                    password=temp_password,
+                    facility_name=facility.name,
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to send credential email to %s. Account was still created.", email
+                )
+
+        transaction.on_commit(_send)
+        return user
