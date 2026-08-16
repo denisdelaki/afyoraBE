@@ -330,3 +330,96 @@ class FacilityViewSetTests(TestCase):
 			response.data['detail'],
 			'Your account is not assigned to a facility.'
 		)
+
+
+class EmailOTPVerificationTests(TestCase):
+	def setUp(self):
+		self.client = APIClient()
+
+	def test_signup_sends_otp_and_unverified_onboarding_is_blocked(self):
+		signup_payload = {
+			'facilityType': 'clinic',
+			'facilityName': 'Test Wellness Clinic',
+			'registrationNumber': 'REG-OTP-1001',
+			'adminFirstName': 'Alice',
+			'adminLastName': 'Smith',
+			'email': 'alice@testwellness.com',
+			'phone': '+254711223344',
+			'password': 'SecurePassword123!',
+		}
+
+		# 1. Trigger Signup
+		response = self.client.post(reverse('signup'), signup_payload, format='json')
+		self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+		organization_id = response.data['organization_id']
+
+		user = User.objects.get(email='alice@testwellness.com')
+		self.assertFalse(user.is_verified)
+
+		# Verify OTP record created
+		from .models import EmailOTP
+		otp = EmailOTP.objects.filter(user=user, is_used=False).first()
+		self.assertIsNotNone(otp)
+		self.assertEqual(len(otp.code), 6)
+
+		# 2. Attempt onboarding before verification -> blocked (403)
+		onboarding_payload = {
+			'organizationId': organization_id,
+			'facilityName': 'Test Wellness Clinic Updated',
+			'facilityEmail': 'info@testwellness.com',
+			'address': '123 Health Way',
+			'city': 'Nairobi',
+			'phone': '+254711223344',
+			'licenseNumber': 'REG-OTP-1001',
+			'adminFirstName': 'Alice',
+			'adminLastName': 'Smith',
+			'adminEmail': 'alice@testwellness.com',
+			'adminPassword': 'SecurePassword123!',
+			'selectedPlan': 'basic',
+		}
+		onboarding_response = self.client.post(
+			reverse('complete-onboarding'),
+			onboarding_payload,
+			format='json'
+		)
+		self.assertEqual(onboarding_response.status_code, status.HTTP_403_FORBIDDEN)
+		self.assertEqual(onboarding_response.data['error'], 'Email not verified')
+
+		# 3. Verify OTP with incorrect code -> 400 Bad Request
+		invalid_verify = self.client.post(
+			reverse('verify-otp'),
+			{'email': 'alice@testwellness.com', 'otp': '000000'},
+			format='json'
+		)
+		self.assertEqual(invalid_verify.status_code, status.HTTP_400_BAD_REQUEST)
+
+		# 4. Trigger resend OTP
+		resend_response = self.client.post(
+			reverse('resend-otp'),
+			{'email': 'alice@testwellness.com'},
+			format='json'
+		)
+		self.assertEqual(resend_response.status_code, status.HTTP_200_OK)
+
+		new_otp = EmailOTP.objects.filter(user=user, is_used=False).order_by('-created_at').first()
+		self.assertIsNotNone(new_otp)
+
+		# 5. Verify OTP with valid code -> 200 OK
+		valid_verify = self.client.post(
+			reverse('verify-otp'),
+			{'email': 'alice@testwellness.com', 'otp': new_otp.code},
+			format='json'
+		)
+		self.assertEqual(valid_verify.status_code, status.HTTP_200_OK)
+		user.refresh_from_db()
+		self.assertTrue(user.is_verified)
+
+		# 6. Now onboarding completion succeeds
+		success_onboarding = self.client.post(
+			reverse('complete-onboarding'),
+			onboarding_payload,
+			format='json'
+		)
+		self.assertEqual(success_onboarding.status_code, status.HTTP_200_OK)
+		self.assertTrue(success_onboarding.data['onboarding_completed'])
+

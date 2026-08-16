@@ -11,12 +11,13 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 from django.utils import timezone
 from django.db import transaction
-from .models import User, Facility, Department, FacilityOnboarding, AuditLog
+from .models import User, Facility, Department, FacilityOnboarding, AuditLog, EmailOTP
+from .utils import generate_and_send_otp
 from .serializers import (
     SignupSerializer, LoginSerializer, SignupResponseSerializer,
     LoginResponseSerializer, UserSerializer, UserDetailSerializer,
     FacilityListSerializer, FacilityDetailSerializer, FacilityWriteSerializer,
-    DepartmentSerializer
+    DepartmentSerializer, VerifyOTPSerializer, ResendOTPSerializer
 )
 
 
@@ -142,9 +143,8 @@ class SignupView(APIView):
             with transaction.atomic():
                 # transaction.atomic() ensures all-or-nothing:
                 # If anything fails, database changes are rolled back
-                
                 facility = serializer.save()
-                
+
                 # Log this signup action
                 AuditLog.objects.create(
                     facility=facility,
@@ -153,19 +153,25 @@ class SignupView(APIView):
                     object_id=str(facility.id),
                     description=f'New facility registered: {facility.name}'
                 )
-                
-                # Build response
-                response_data = {
-                    'organization_id': facility.id,
-                    'onboarding_required': True,
-                    'message': 'Signup successful! Please complete onboarding.'
-                }
-                
-                # Status 201 = Created (standard for POST that creates resource)
-                return Response(
-                    response_data,
-                    status=status.HTTP_201_CREATED
-                )
+
+            # Send email OTP after transaction successfully commits
+            admin_user = facility.users.filter(role='facility_admin').first()
+            if admin_user:
+                generate_and_send_otp(admin_user)
+
+            # Build response
+            response_data = {
+                'organization_id': facility.id,
+                'onboarding_required': True,
+                'is_verified': False,
+                'message': 'Signup successful! A 6-digit verification code has been sent to your email.'
+            }
+
+            # Status 201 = Created (standard for POST that creates resource)
+            return Response(
+                response_data,
+                status=status.HTTP_201_CREATED
+            )
         
         except Exception as e:
             # If something goes wrong during creation
@@ -442,6 +448,17 @@ class CompleteOnboardingView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
 
+        admin_user = facility.users.filter(role='facility_admin').first()
+        if admin_user and not admin_user.is_verified:
+            return Response(
+                {
+                    'error': 'Email not verified',
+                    'message': 'Please verify your email address via OTP before completing onboarding.',
+                    'is_verified': False
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         with transaction.atomic():
             facility.name = payload['facility_name']
             facility.address = payload['address']
@@ -505,6 +522,140 @@ class CompleteOnboardingView(APIView):
                 'organization_id': facility.id,
                 'onboarding_completed': True,
                 'message': 'Facility onboarding completed successfully.'
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+# ============================================================================
+# VERIFY OTP VIEW
+# ============================================================================
+
+class VerifyOTPView(APIView):
+    """
+    POST /api/auth/verify-otp/
+
+    Verify 6-digit OTP code sent to user email.
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = VerifyOTPSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                {
+                    'error': 'Validation failed',
+                    'details': serializer.errors
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        email = serializer.validated_data['email']
+        otp_code = serializer.validated_data['otp']
+
+        try:
+            user = User.objects.get(email__iexact=email)
+        except User.DoesNotExist:
+            return Response(
+                {
+                    'error': 'User not found',
+                    'details': {'email': ['No account found with this email address.']}
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        if user.is_verified:
+            return Response(
+                {
+                    'message': 'Email address is already verified.',
+                    'is_verified': True
+                },
+                status=status.HTTP_200_OK
+            )
+
+        # Look for matching OTP code
+        otp_instance = EmailOTP.objects.filter(
+            user=user,
+            code=otp_code,
+            is_used=False
+        ).order_by('-created_at').first()
+
+        if not otp_instance or not otp_instance.is_valid():
+            return Response(
+                {
+                    'error': 'Invalid or expired OTP code',
+                    'details': {'otp': ['The verification code is invalid or has expired. Please request a new code.']}
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        with transaction.atomic():
+            otp_instance.is_used = True
+            otp_instance.save(update_fields=['is_used', 'updated_at'])
+
+            user.is_verified = True
+            user.save(update_fields=['is_verified', 'updated_at'])
+
+        return Response(
+            {
+                'message': 'Email verified successfully.',
+                'is_verified': True
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+# ============================================================================
+# RESEND OTP VIEW
+# ============================================================================
+
+class ResendOTPView(APIView):
+    """
+    POST /api/auth/resend-otp/
+
+    Triggers resend of 6-digit OTP code to user email.
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = ResendOTPSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                {
+                    'error': 'Validation failed',
+                    'details': serializer.errors
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        email = serializer.validated_data['email']
+
+        try:
+            user = User.objects.get(email__iexact=email)
+        except User.DoesNotExist:
+            return Response(
+                {
+                    'error': 'User not found',
+                    'details': {'email': ['No account found with this email address.']}
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        if user.is_verified:
+            return Response(
+                {
+                    'message': 'Email address is already verified.',
+                    'is_verified': True
+                },
+                status=status.HTTP_200_OK
+            )
+
+        generate_and_send_otp(user, email=user.email)
+
+        return Response(
+            {
+                'message': 'A new 6-digit verification code has been sent to your email.',
+                'email': user.email
             },
             status=status.HTTP_200_OK
         )

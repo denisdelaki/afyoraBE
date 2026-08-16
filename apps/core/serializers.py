@@ -591,3 +591,35 @@ class SignupResponseSerializer(serializers.Serializer):
     organization_id = serializers.IntegerField()
     onboarding_required = serializers.BooleanField()
     message = serializers.CharField()
+
+
+# ============================================================================
+# OTP SERIALIZERS
+# ============================================================================
+
+class VerifyOTPSerializer(serializers.Serializer):
+    """
+    Serializer for verifying 6-digit email OTP.
+    Supports 'otp' or 'code' field and 'email'.
+    """
+    email = serializers.EmailField(required=True)
+    otp = serializers.CharField(required=False, max_length=6, min_length=6)
+    code = serializers.CharField(required=False, max_length=6, min_length=6)
+
+    def to_internal_value(self, data):
+        payload = dict(data)
+        if not payload.get('otp') and payload.get('code'):
+            payload['otp'] = payload.get('code')
+        return super().to_internal_value(payload)
+
+    def validate(self, data):
+        if not data.get('otp'):
+            raise serializers.ValidationError({'otp': 'OTP code is required.'})
+        return data
+
+
+class ResendOTPSerializer(serializers.Serializer):
+    """
+    Serializer for triggering resend OTP to an email.
+    """
+    email = serializers.EmailField(required=True)
