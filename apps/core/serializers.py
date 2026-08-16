@@ -3,6 +3,7 @@
 from rest_framework import serializers
 from django.contrib.auth import authenticate
 from django.contrib.auth.hashers import make_password
+from django.contrib.auth.password_validation import validate_password
 from .models import User, Facility, Department, FacilityOnboarding
 import re
 
@@ -623,3 +624,30 @@ class ResendOTPSerializer(serializers.Serializer):
     Serializer for triggering resend OTP to an email.
     """
     email = serializers.EmailField(required=True)
+
+
+# ============================================================================
+# PASSWORD RESET SERIALIZERS
+# ============================================================================
+
+class PasswordResetRequestSerializer(serializers.Serializer):
+    """Validate the email supplied when requesting a password-reset link."""
+
+    email = serializers.EmailField(required=True)
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    """Validate a new password supplied with a password-reset token."""
+
+    new_password = serializers.CharField(write_only=True, trim_whitespace=False)
+    confirm_password = serializers.CharField(write_only=True, trim_whitespace=False)
+
+    def validate(self, data):
+        if data['new_password'] != data['confirm_password']:
+            raise serializers.ValidationError(
+                {'confirm_password': 'Passwords do not match.'}
+            )
+
+        user = self.context.get('user')
+        validate_password(data['new_password'], user=user)
+        return data

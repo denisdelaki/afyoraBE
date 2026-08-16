@@ -11,13 +11,19 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 from django.utils import timezone
 from django.db import transaction
+from django.conf import settings
+from django.contrib.auth.tokens import default_token_generator
+from django.core.mail import EmailMultiAlternatives
+from django.utils.encoding import force_bytes, force_str
+from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from .models import User, Facility, Department, FacilityOnboarding, AuditLog, EmailOTP
 from .utils import generate_and_send_otp
 from .serializers import (
     SignupSerializer, LoginSerializer, SignupResponseSerializer,
     LoginResponseSerializer, UserSerializer, UserDetailSerializer,
     FacilityListSerializer, FacilityDetailSerializer, FacilityWriteSerializer,
-    DepartmentSerializer, VerifyOTPSerializer, ResendOTPSerializer
+    DepartmentSerializer, VerifyOTPSerializer, ResendOTPSerializer,
+    PasswordResetRequestSerializer, PasswordResetConfirmSerializer,
 )
 
 
@@ -36,6 +42,73 @@ def get_audit_facility_for_user(user):
         return Facility.objects.order_by('id').first()
 
     return None
+
+
+class PasswordResetRequestView(APIView):
+    """Send a one-time password-reset link to a user's registered email."""
+
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = PasswordResetRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        # Always return the same response so this endpoint cannot be used to
+        # discover which email addresses have an account.
+        email = serializer.validated_data['email']
+        user = User.objects.filter(email__iexact=email, is_active=True).first()
+        if user:
+            uid = urlsafe_base64_encode(force_bytes(user.pk))
+            token = default_token_generator.make_token(user)
+            reset_base_url = getattr(
+                settings,
+                'PASSWORD_RESET_URL',
+                'http://localhost:4200/reset-password',
+            ).rstrip('/')
+            reset_url = f'{reset_base_url}?uid={uid}&token={token}'
+
+            message = (
+                f'Hello {user.get_full_name() or user.username},\n\n'
+                'We received a request to reset your Afyora HMS password.\n\n'
+                f'Reset your password: {reset_url}\n\n'
+                'If you did not request this, you can safely ignore this email.'
+            )
+            email_message = EmailMultiAlternatives(
+                subject='Afyora HMS — Reset your password',
+                body=message,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                to=[user.email],
+            )
+            email_message.send(fail_silently=False)
+
+        return Response(
+            {'message': 'If an active account exists for this email, a password-reset link has been sent.'},
+            status=status.HTTP_200_OK,
+        )
+
+
+class PasswordResetConfirmView(APIView):
+    """Set a new password after a valid password-reset link is presented."""
+
+    permission_classes = [AllowAny]
+
+    def post(self, request, uid, token):
+        try:
+            user_id = force_str(urlsafe_base64_decode(uid))
+            user = User.objects.get(pk=user_id, is_active=True)
+        except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+            return Response({'error': 'Invalid or expired reset link.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not default_token_generator.check_token(user, token):
+            return Response({'error': 'Invalid or expired reset link.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = PasswordResetConfirmSerializer(data=request.data, context={'user': user})
+        serializer.is_valid(raise_exception=True)
+        user.set_password(serializer.validated_data['new_password'])
+        user.must_change_password = False
+        user.save(update_fields=['password', 'must_change_password', 'updated_at'])
+
+        return Response({'message': 'Password reset successfully. You can now log in.'})
 
 
 # ============================================================================

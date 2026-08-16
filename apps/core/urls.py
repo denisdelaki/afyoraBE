@@ -4,7 +4,8 @@ from django.urls import path, include, re_path
 from rest_framework.routers import DefaultRouter
 from .views import (
     SignupView, LoginView, RefreshView, LogoutView, CompleteOnboardingView,
-    VerifyOTPView, ResendOTPView, UserViewSet, FacilityViewSet, DepartmentViewSet
+    VerifyOTPView, ResendOTPView, PasswordResetRequestView, PasswordResetConfirmView,
+    UserViewSet, FacilityViewSet, DepartmentViewSet,
 )
 
 # ============================================================================
@@ -41,6 +42,12 @@ urlpatterns = [
     re_path(r'^auth/verify-otp$', VerifyOTPView.as_view()),
     path('auth/resend-otp/', ResendOTPView.as_view(), name='resend-otp'),
     re_path(r'^auth/resend-otp$', ResendOTPView.as_view()),
+    path('auth/password-reset/', PasswordResetRequestView.as_view(), name='password-reset'),
+    path(
+        'auth/password-reset-confirm/<uid>/<token>/',
+        PasswordResetConfirmView.as_view(),
+        name='password-reset-confirm',
+    ),
     path('auth/onboarding/complete/', CompleteOnboardingView.as_view(), name='complete-onboarding'),
     
     # Resource endpoints (from router)
