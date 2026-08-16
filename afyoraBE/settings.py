@@ -366,6 +366,17 @@ LOGGING = {
             'level': 'ERROR',
             'propagate': False,
         },
+        # Our app loggers — captures errors from background email thread in core.utils
+        'core': {
+            'handlers': ['console', 'file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+    },
+    # Root logger fallback — ensures NO logger is ever silently dropped
+    'root': {
+        'handlers': ['console', 'file'],
+        'level': 'WARNING',
     },
 }
  
@@ -411,6 +422,8 @@ EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
 EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
 EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
 DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='Afyora HMS <afyorahms@gmail.com>')
+# Timeout in seconds for SMTP connections — prevents threads from hanging forever
+EMAIL_TIMEOUT = config('EMAIL_TIMEOUT', default=10, cast=int)
  
 # ============================================================================
 # CELERY CONFIGURATION (OPTIONAL)
