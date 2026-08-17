@@ -1,4 +1,5 @@
 from django.test import TestCase
+from django.test import override_settings
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -6,6 +7,44 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import Facility, FacilityOnboarding, User
 
+
+class TransactionalEmailTests(TestCase):
+	@override_settings(
+		RESEND_API_KEY='re_test_key',
+		RESEND_API_URL='https://email-provider.test/emails',
+		RESEND_TIMEOUT=7,
+		DEFAULT_FROM_EMAIL='Afyora HMS <verified@afyora.example>',
+	)
+	def test_resend_api_payload_is_used_for_transactional_email(self):
+		from unittest.mock import Mock, patch
+		from .utils import send_transactional_email
+
+		response = Mock()
+		response.json.return_value = {'id': 'email_123'}
+		with patch('core.utils.requests.post', return_value=response) as post:
+			message_id = send_transactional_email(
+				to_email='patient@example.com',
+				subject='Verification code',
+				text='Your code is 123456',
+				html='<p>Your code is 123456</p>',
+			)
+
+		self.assertEqual(message_id, 'email_123')
+		post.assert_called_once_with(
+			'https://email-provider.test/emails',
+			headers={
+				'Authorization': 'Bearer re_test_key',
+				'Content-Type': 'application/json',
+			},
+			json={
+				'from': 'Afyora HMS <verified@afyora.example>',
+				'to': ['patient@example.com'],
+				'subject': 'Verification code',
+				'text': 'Your code is 123456',
+				'html': '<p>Your code is 123456</p>',
+			},
+			timeout=7,
+		)
 
 class AuthViewTests(TestCase):
 	def setUp(self):
@@ -422,4 +461,3 @@ class EmailOTPVerificationTests(TestCase):
 		)
 		self.assertEqual(success_onboarding.status_code, status.HTTP_200_OK)
 		self.assertTrue(success_onboarding.data['onboarding_completed'])
-

@@ -17,6 +17,11 @@ services:
         fromDatabase:
           name: afyorabe-db
           property: connectionString
+      - key: RESEND_API_KEY
+        sync: false
+      - key: DEFAULT_FROM_EMAIL
+        value: "Afyora HMS <afyorahms@gmail.com>"
+        sync: false
 
 databases:
   - name: afyorabe-db

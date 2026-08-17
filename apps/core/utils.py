@@ -5,12 +5,49 @@ import string
 import threading
 import logging
 from datetime import timedelta
+from email.utils import parseaddr
+import requests
 from django.conf import settings
-from django.core.mail import EmailMultiAlternatives
 from django.utils import timezone
 from .models import EmailOTP
 
 logger = logging.getLogger(__name__)
+
+
+def send_transactional_email(*, to_email: str, subject: str, text: str, html: str) -> str:
+    """Send an email through Resend's HTTPS transactional email API.
+
+    Returns the provider message ID and raises ``requests.HTTPError`` when the
+    provider rejects the request. This deliberately avoids SMTP, whose ports
+    are commonly blocked by hosting providers.
+    """
+    api_key = settings.RESEND_API_KEY
+    if not api_key:
+        raise RuntimeError('RESEND_API_KEY is not configured.')
+
+    sender_name, sender_email = parseaddr(settings.DEFAULT_FROM_EMAIL)
+    if not sender_email:
+        raise RuntimeError('DEFAULT_FROM_EMAIL must contain a valid sender email address.')
+
+    sender = f'{sender_name} <{sender_email}>' if sender_name else sender_email
+
+    response = requests.post(
+        settings.RESEND_API_URL,
+        headers={
+            'Authorization': f'Bearer {api_key}',
+            'Content-Type': 'application/json',
+        },
+        json={
+            'from': sender,
+            'to': [to_email],
+            'subject': subject,
+            'text': text,
+            'html': html,
+        },
+        timeout=settings.RESEND_TIMEOUT,
+    )
+    response.raise_for_status()
+    return response.json().get('id', '')
 
 
 def generate_otp_code(length: int = 6) -> str:
@@ -89,29 +126,21 @@ def generate_and_send_otp(user, email: str = None) -> EmailOTP:
     def _send_email():
         import traceback
         import sys
-        logger.debug(
-            f"[OTP] Attempting email to {target_email} via "
-            f"{settings.EMAIL_BACKEND} / {settings.EMAIL_HOST}:{settings.EMAIL_PORT} "
-            f"(user={settings.EMAIL_HOST_USER})"
-        )
+        logger.debug('[OTP] Attempting transactional API email to %s', target_email)
         try:
-            msg = EmailMultiAlternatives(
+            message_id = send_transactional_email(
+                to_email=target_email,
                 subject=subject,
-                body=text_content,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                to=[target_email],
+                text=text_content,
+                html=html_content,
             )
-            msg.attach_alternative(html_content, "text/html")
-            msg.send(fail_silently=False)
-            logger.info(f"[OTP] Email sent successfully to {target_email}")
-            print(f"[OTP] Email sent successfully to {target_email}", flush=True)
+            logger.info('[OTP] Email sent successfully to %s (provider_id=%s)', target_email, message_id)
         except Exception as e:
             tb = traceback.format_exc()
             logger.error(f"[OTP] Failed to send email to {target_email}: {e}\n{tb}")
-            # Also print to stderr as a guaranteed fallback visible in server console
             print(f"[OTP] EMAIL ERROR to {target_email}: {e}\n{tb}", file=sys.stderr, flush=True)
 
-    # Send in a background thread so the request is NOT blocked by SMTP I/O.
+    # Send in a background thread so the request is NOT blocked by HTTP I/O.
     # daemon=True ensures the thread won't prevent the process from shutting down.
     email_thread = threading.Thread(target=_send_email, daemon=True)
     email_thread.start()

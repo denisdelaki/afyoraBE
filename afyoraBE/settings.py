@@ -407,21 +407,28 @@ if not DEBUG:
 # ============================================================================
 # EMAIL CONFIGURATION
 # ============================================================================
-# For sending emails (welcome, reset password, etc.)
- 
+# SMTP settings are retained only for legacy Django mail callers. OTP delivery
+# uses Resend's HTTPS API, which works on platforms that block SMTP egress.
+
 EMAIL_BACKEND = config(
     'EMAIL_BACKEND',
     default='django.core.mail.backends.console.EmailBackend'
 )
-# Console backend prints to console (development)
-# In production, use: 'django.core.mail.backends.smtp.EmailBackend'
- 
+# Console backend prints to console (development).
+
 EMAIL_HOST = config('EMAIL_HOST', default='smtp.gmail.com')
 EMAIL_PORT = config('EMAIL_PORT', default='587', cast=int)
 EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
 EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
 EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
-DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='Afyora HMS <afyorahms@gmail.com>')
+DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='Afyora HMS <onboarding@resend.dev>')
+
+# Resend transactional email API. Set RESEND_API_KEY in Render and make
+# sure DEFAULT_FROM_EMAIL matches a Resend verified domain (or resend.dev for testing).
+RESEND_API_KEY = config('RESEND_API_KEY', default='')
+RESEND_API_URL = config('RESEND_API_URL', default='https://api.resend.com/emails')
+RESEND_TIMEOUT = config('RESEND_TIMEOUT', default=10, cast=int)
+
 # Frontend page that receives the reset token from the email link.
 PASSWORD_RESET_URL = config('PASSWORD_RESET_URL', default='http://localhost:4200/reset-password')
 # Timeout in seconds for SMTP connections — prevents threads from hanging forever
