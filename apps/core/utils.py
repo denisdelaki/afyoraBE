@@ -15,40 +15,42 @@ logger = logging.getLogger(__name__)
 
 
 def send_transactional_email(*, to_email: str, subject: str, text: str, html: str) -> str:
-    """Send an email through Resend's HTTPS transactional email API.
-
-    Returns the provider message ID and raises ``requests.HTTPError`` when the
-    provider rejects the request. This deliberately avoids SMTP, whose ports
-    are commonly blocked by hosting providers.
-    """
-    api_key = settings.RESEND_API_KEY
+    """Send an email through Brevo's HTTPS transactional email API."""
+    api_key = settings.BREVO_API_KEY
     if not api_key:
-        raise RuntimeError('RESEND_API_KEY is not configured.')
+        raise RuntimeError('BREVO_API_KEY is not configured.')
 
     sender_name, sender_email = parseaddr(settings.DEFAULT_FROM_EMAIL)
     if not sender_email:
         raise RuntimeError('DEFAULT_FROM_EMAIL must contain a valid sender email address.')
 
-    sender = f'{sender_name} <{sender_email}>' if sender_name else sender_email
+    sender = {'email': sender_email}
+    if sender_name:
+        sender['name'] = sender_name
 
     response = requests.post(
-        settings.RESEND_API_URL,
+        settings.BREVO_API_URL,
         headers={
-            'Authorization': f'Bearer {api_key}',
+            'api-key': api_key,
             'Content-Type': 'application/json',
+            'Accept': 'application/json',
         },
         json={
-            'from': sender,
-            'to': [to_email],
+            'sender': sender,
+            'to': [{'email': to_email}],
             'subject': subject,
-            'text': text,
-            'html': html,
+            'textContent': text,
+            'htmlContent': html,
         },
-        timeout=settings.RESEND_TIMEOUT,
+        timeout=settings.BREVO_TIMEOUT,
     )
+    if not response.ok:
+        logger.error(
+            '[OTP] Brevo API error %s for %s: %s',
+            response.status_code, to_email, response.text,
+        )
     response.raise_for_status()
-    return response.json().get('id', '')
-
+    return response.json().get('messageId', '')
 
 def generate_otp_code(length: int = 6) -> str:
     """Generate a cryptographically secure 6-digit OTP code."""

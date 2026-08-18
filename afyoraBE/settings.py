@@ -423,11 +423,11 @@ EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
 EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
 DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='Afyora HMS <onboarding@resend.dev>')
 
-# Resend transactional email API. Set RESEND_API_KEY in Render and make
-# sure DEFAULT_FROM_EMAIL matches a Resend verified domain (or resend.dev for testing).
-RESEND_API_KEY = config('RESEND_API_KEY', default='')
-RESEND_API_URL = config('RESEND_API_URL', default='https://api.resend.com/emails')
-RESEND_TIMEOUT = config('RESEND_TIMEOUT', default=10, cast=int)
+# Brevo transactional email API. Set BREVO_API_KEY in Render and make
+# sure DEFAULT_FROM_EMAIL matches a Brevo verified domain (or resend.dev for testing).
+BREVO_API_KEY = config('BREVO_API_KEY', default='')
+BREVO_API_URL = config('BREVO_API_URL', default='https://api.brevo.com/v3/smtp/email')
+BREVO_TIMEOUT = config('BREVO_TIMEOUT', default=10, cast=int)
 
 # Frontend page that receives the reset token from the email link.
 PASSWORD_RESET_URL = config('PASSWORD_RESET_URL', default='http://localhost:4200/reset-password')
