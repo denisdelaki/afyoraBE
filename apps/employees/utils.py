@@ -1,8 +1,11 @@
 import secrets
 import string
+import logging
 
-from django.conf import settings
-from django.core.mail import EmailMultiAlternatives
+from core.utils import send_transactional_email
+
+
+logger = logging.getLogger(__name__)
 
 
 def generate_temp_password(length: int = 12) -> str:
@@ -20,8 +23,14 @@ def generate_temp_password(length: int = 12) -> str:
     return "".join(password)
 
 
-def send_employee_credentials(employee_name: str, email: str, username: str, password: str, facility_name: str) -> None:
-    """Send login credentials to a newly created employee via plain-text and HTML email."""
+def send_employee_credentials(
+    employee_name: str,
+    email: str,
+    username: str,
+    password: str,
+    facility_name: str,
+) -> str:
+    """Send login credentials through the configured Brevo transactional API."""
     subject = f"Welcome to {facility_name} — Your Afyora Login Credentials"
     
     text_content = (
@@ -74,11 +83,15 @@ def send_employee_credentials(employee_name: str, email: str, username: str, pas
     </html>
     """
 
-    msg = EmailMultiAlternatives(
+    message_id = send_transactional_email(
         subject=subject,
-        body=text_content,
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        to=[email],
+        text=text_content,
+        html=html_content,
+        to_email=email,
     )
-    msg.attach_alternative(html_content, "text/html")
-    msg.send(fail_silently=False)
+    logger.info(
+        'Credential email accepted by Brevo for %s (provider_id=%s)',
+        email,
+        message_id,
+    )
+    return message_id

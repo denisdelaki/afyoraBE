@@ -210,8 +210,10 @@ class EmployeeSerializer(serializers.ModelSerializer):
 
         # Use email as username; skip if an account already exists for this email.
         if User.objects.filter(username=email).exists():
-            logger.info(
-                "User account already exists for %s — skipping credential email.", email
+            logger.warning(
+                "User account already exists for %s — skipping credential email. "
+                "Use the resend-credentials endpoint to issue a new password.",
+                email,
             )
             return None
 
