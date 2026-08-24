@@ -28,7 +28,9 @@ deployments should use `SUPABASE_DATABASE_URL`.
 2. Set `SUPABASE_DATABASE_URL` on the Render web service and on the backup job.
 3. Set `RENDER_DATABASE_URL` from the Render database's internal connection
    string.
-4. Run migrations against Supabase only:
+4. Deploy the web service. On Render's Free plan the start command runs
+   migrations against Supabase before it starts Gunicorn. You can also run this
+   locally with the same `SUPABASE_DATABASE_URL`:
 
 ```bash
 python manage.py migrate --noinput
@@ -41,11 +43,12 @@ python manage.py migrate --database=backup --noinput
 python manage.py sync_render_backup --noinput
 ```
 
-Run that command from a Render Cron Job or another trusted scheduler (for
-example, hourly). It is safe to rerun, but it **replaces data in every table in
-the Render backup**. Before syncing after a model migration, run `migrate
---database=backup` so the schemas match. Keep the Render database private and
-never use it for app writes.
+Render Free does not include Shell access, pre-deploy commands, or cron jobs.
+Run the backup commands from your own computer, or use an external scheduler
+such as GitHub Actions. The sync is safe to rerun, but it **replaces data in
+every table in the Render backup**. Before syncing after a model migration, run
+`migrate --database=backup` so the schemas match. Keep the Render database
+private and never use it for app writes.
 
 ## Restoring after a Supabase incident
 

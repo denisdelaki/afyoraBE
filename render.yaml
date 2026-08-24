@@ -4,8 +4,9 @@ services:
     env: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    preDeployCommand: python manage.py migrate --noinput
-    startCommand: gunicorn afyoraBE.wsgi:application
+    # Free web services do not support pre-deploy commands. Running migrations
+    # before Gunicorn starts ensures a newly selected primary has its schema.
+    startCommand: python manage.py migrate --noinput && gunicorn afyoraBE.wsgi:application
     envVars:
       - key: PYTHON_VERSION
         value: 3.14
@@ -17,7 +18,7 @@ services:
       # in the Render dashboard (not the Supabase REST URL).
       - key: SUPABASE_DATABASE_URL
         sync: false
-      # This database is used only by the backup sync job below.
+      # This database is used only by the external backup-sync command.
       - key: RENDER_DATABASE_URL
         fromDatabase:
           name: afyorabe-db
@@ -28,27 +29,6 @@ services:
         sync: false
       - key: DEFAULT_FROM_EMAIL
         sync: false
-
-  # A one-way hourly disaster-recovery snapshot.
-  - type: cron
-    name: afyorabe-render-backup
-    env: python
-    schedule: "0 * * * *"
-    buildCommand: pip install -r requirements.txt
-    startCommand: python manage.py sync_render_backup --noinput
-    envVars:
-      - key: PYTHON_VERSION
-        value: 3.14
-      - key: ENVIRONMENT
-        value: backup
-      - key: DEBUG
-        value: false
-      - key: SUPABASE_DATABASE_URL
-        sync: false
-      - key: RENDER_DATABASE_URL
-        fromDatabase:
-          name: afyorabe-db
-          property: connectionString
 
 databases:
   - name: afyorabe-db
