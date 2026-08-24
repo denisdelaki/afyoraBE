@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.authtoken.models import Token
+from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 from django.utils import timezone
@@ -385,7 +386,16 @@ class RefreshView(APIView):
             )
 
         serializer = TokenRefreshSerializer(data={'refresh': incoming_refresh})
-        serializer.is_valid(raise_exception=True)
+        try:
+            serializer.is_valid(raise_exception=True)
+        except TokenError:
+            # A token signed by an old key (for example after a deployment),
+            # expired token, or malformed token is an authentication failure,
+            # never an unhandled server error.
+            return Response(
+                {'error': 'Invalid or expired refresh token. Please sign in again.'},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
 
         token_data = serializer.validated_data
         response_data = {'access_token': token_data.get('access')}

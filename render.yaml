@@ -13,15 +13,42 @@ services:
         generateValue: true
       - key: ENVIRONMENT
         value: production
-      - key: DATABASE_URL
+      # Supabase is the application primary. Supply its direct PostgreSQL URL
+      # in the Render dashboard (not the Supabase REST URL).
+      - key: SUPABASE_DATABASE_URL
+        sync: false
+      # This database is used only by the backup sync job below.
+      - key: RENDER_DATABASE_URL
         fromDatabase:
           name: afyorabe-db
           property: connectionString
-      - key: RESEND_API_KEY
+      # Supply this secret in the Render dashboard. The sender configured below
+      # must also be verified in Brevo.
+      - key: BREVO_API_KEY
         sync: false
       - key: DEFAULT_FROM_EMAIL
-        value: "Afyora HMS <afyorahms@gmail.com>"
         sync: false
+
+  # A one-way hourly disaster-recovery snapshot.
+  - type: cron
+    name: afyorabe-render-backup
+    env: python
+    schedule: "0 * * * *"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python manage.py sync_render_backup --noinput
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.14
+      - key: ENVIRONMENT
+        value: backup
+      - key: DEBUG
+        value: false
+      - key: SUPABASE_DATABASE_URL
+        sync: false
+      - key: RENDER_DATABASE_URL
+        fromDatabase:
+          name: afyorabe-db
+          property: connectionString
 
 databases:
   - name: afyorabe-db

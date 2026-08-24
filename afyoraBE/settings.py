@@ -14,6 +14,7 @@ from pathlib import Path
 import sys
 from urllib.parse import parse_qs, urlparse
 from django.core.management.utils import get_random_secret_key
+from django.core.exceptions import ImproperlyConfigured
 from decouple import config  
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -27,9 +28,15 @@ if str(APPS_DIR) not in sys.path:
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
-SECRET_KEY = config('SECRET_KEY', default=get_random_secret_key())
-
 ENVIRONMENT = config('ENVIRONMENT', default='development')
+_configured_secret_key = config('SECRET_KEY', default='').strip()
+if not _configured_secret_key:
+    if ENVIRONMENT.lower() == 'production':
+        raise ImproperlyConfigured(
+            'SECRET_KEY must be configured in production. A generated key would invalidate JWTs after every restart.'
+        )
+    _configured_secret_key = get_random_secret_key()
+SECRET_KEY = _configured_secret_key
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=ENVIRONMENT == 'development', cast=bool)
@@ -141,15 +148,11 @@ WSGI_APPLICATION = 'afyoraBE.wsgi.application'
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
 
-def build_database_config():
-    database_url = config('DATABASE_URL', default='').strip()
+def database_config_from_url(database_url, *, connection_max_age=0):
+    """Build a Django database configuration from a PostgreSQL URL."""
+    database_url = database_url.strip()
     if not database_url:
-        return {
-            'default': {
-                'ENGINE': 'django.db.backends.sqlite3',
-                'NAME': BASE_DIR / 'db.sqlite3',
-            }
-        }
+        raise ValueError('A database URL is required.')
 
     parsed = urlparse(database_url)
     engine_map = {
@@ -171,12 +174,43 @@ def build_database_config():
             'PASSWORD': parsed.password or '',
             'HOST': parsed.hostname or '',
             'PORT': parsed.port or '',
-            'CONN_MAX_AGE': config('DB_CONN_MAX_AGE', default=600, cast=int),
+            'CONN_MAX_AGE': connection_max_age,
             'OPTIONS': {
                 'sslmode': query_params.get('sslmode', ['require'])[0],
             },
         }
     }
+
+
+def build_database_config():
+    """Configure Supabase as primary and Render as the optional backup.
+
+    DATABASE_URL remains supported for existing deployments, but new deployments
+    should set SUPABASE_DATABASE_URL and RENDER_DATABASE_URL explicitly.
+    """
+    primary_url = config(
+        'SUPABASE_DATABASE_URL',
+        default=config('DATABASE_URL', default=''),
+    ).strip()
+    if not primary_url:
+        return {
+            'default': {
+                'ENGINE': 'django.db.backends.sqlite3',
+                'NAME': BASE_DIR / 'db.sqlite3',
+            }
+        }
+
+    databases = database_config_from_url(
+        primary_url,
+        connection_max_age=config('DB_CONN_MAX_AGE', default=600, cast=int),
+    )
+    render_url = config('RENDER_DATABASE_URL', default='').strip()
+    if render_url:
+        databases['backup'] = database_config_from_url(
+            render_url,
+            connection_max_age=config('BACKUP_DB_CONN_MAX_AGE', default=0, cast=int),
+        )['default']
+    return databases
 
 
 DATABASES = build_database_config()
@@ -408,7 +442,7 @@ if not DEBUG:
 # EMAIL CONFIGURATION
 # ============================================================================
 # SMTP settings are retained only for legacy Django mail callers. OTP delivery
-# uses Resend's HTTPS API, which works on platforms that block SMTP egress.
+# uses Brevo's HTTPS API, which works on platforms that block SMTP egress.
 
 EMAIL_BACKEND = config(
     'EMAIL_BACKEND',
@@ -421,10 +455,10 @@ EMAIL_PORT = config('EMAIL_PORT', default='587', cast=int)
 EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
 EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
 EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
-DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='Afyora HMS <onboarding@resend.dev>')
+DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='')
 
 # Brevo transactional email API. Set BREVO_API_KEY in Render and make
-# sure DEFAULT_FROM_EMAIL matches a Brevo verified domain (or resend.dev for testing).
+# sure DEFAULT_FROM_EMAIL is a sender verified in Brevo.
 BREVO_API_KEY = config('BREVO_API_KEY', default='')
 BREVO_API_URL = config('BREVO_API_URL', default='https://api.brevo.com/v3/smtp/email')
 BREVO_TIMEOUT = config('BREVO_TIMEOUT', default=10, cast=int)

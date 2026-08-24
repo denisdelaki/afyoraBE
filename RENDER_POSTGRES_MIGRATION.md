@@ -1,55 +1,55 @@
-# Render Postgres Migration
+# Supabase Primary and Render Backup
 
-This project now supports two database modes:
+This deployment uses Supabase PostgreSQL as the application primary and Render
+PostgreSQL as a one-way disaster-recovery backup. The application reads and
+writes **only** Supabase. A scheduled sync replaces the Render database with a
+consistent snapshot from Supabase.
 
-- Local development without `DATABASE_URL`: SQLite (`db.sqlite3`)
-- Render or any environment with `DATABASE_URL`: PostgreSQL
+This is intentionally not active-active replication: two independent Postgres
+services cannot safely accept the same writes without conflict handling and a
+replication system. Do not point the deployed web service at the Render URL.
 
-## 1. Provision Postgres on Render
+## Required environment variables
 
-If you deploy from `render.yaml`, sync the blueprint so Render creates the `afyorabe-db` database and injects its `connectionString` into `DATABASE_URL` for the web service.
-
-If you manage services manually in the Render dashboard, create a PostgreSQL database and add its connection string to the web service as `DATABASE_URL`.
-
-## 2. Back Up the Current SQLite Data
-
-From the project root:
+Set these in Render and locally when running the sync:
 
 ```bash
-source venv/bin/activate
-cp db.sqlite3 db.sqlite3.backup
-python manage.py dumpdata \
-  --exclude contenttypes \
-  --exclude auth.permission \
-  --exclude admin.logentry \
-  --natural-foreign \
-  --natural-primary \
-  --indent 2 > data-migration.json
+SUPABASE_DATABASE_URL='postgresql://...'
+RENDER_DATABASE_URL='postgresql://...'
 ```
 
-## 3. Load the Data into Postgres
+Use Supabase's direct PostgreSQL connection string, including its SSL options.
+`DATABASE_URL` is accepted as a backwards-compatible primary fallback, but new
+deployments should use `SUPABASE_DATABASE_URL`.
 
-Use the external connection string from your Render Postgres instance for the one-time import from your machine.
+## Initial setup
+
+1. Create the Render PostgreSQL database from `render.yaml`.
+2. Set `SUPABASE_DATABASE_URL` on the Render web service and on the backup job.
+3. Set `RENDER_DATABASE_URL` from the Render database's internal connection
+   string.
+4. Run migrations against Supabase only:
 
 ```bash
-source venv/bin/activate
-export DATABASE_URL='postgresql://USER:PASSWORD@HOST:PORT/DATABASE?sslmode=require'
 python manage.py migrate --noinput
-python manage.py loaddata data-migration.json
 ```
 
-## 4. Verify the Imported Data
+5. Prepare the backup schema, then create the first backup:
 
 ```bash
-python manage.py shell -c "from django.contrib.auth import get_user_model; from patients.models import Patient; print('users=', get_user_model().objects.count(), 'patients=', Patient.objects.count())"
+python manage.py migrate --database=backup --noinput
+python manage.py sync_render_backup --noinput
 ```
 
-## 5. Redeploy the Render Web Service
+Run that command from a Render Cron Job or another trusted scheduler (for
+example, hourly). It is safe to rerun, but it **replaces data in every table in
+the Render backup**. Before syncing after a model migration, run `migrate
+--database=backup` so the schemas match. Keep the Render database private and
+never use it for app writes.
 
-After the data is in Postgres, trigger a Render deploy. The service will keep using Postgres because Render supplies `DATABASE_URL`, and future migrations will run automatically via `preDeployCommand`.
+## Restoring after a Supabase incident
 
-## Notes
-
-- Keep `db.sqlite3` until you confirm production data is present in Postgres.
-- `loaddata` preserves hashed passwords, so existing users can keep signing in.
-- If you already created a superuser directly in Postgres before import and get duplicate-user errors, drop that user first or rebuild the Postgres database and re-run the import.
+Stop application writes, change `SUPABASE_DATABASE_URL` to the restored Render
+database URL, deploy, and then establish a new backup target. Verify the
+application before reopening writes. This controlled failover avoids split-brain
+data.

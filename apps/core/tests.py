@@ -10,17 +10,18 @@ from .models import Facility, FacilityOnboarding, User
 
 class TransactionalEmailTests(TestCase):
 	@override_settings(
-		RESEND_API_KEY='re_test_key',
-		RESEND_API_URL='https://email-provider.test/emails',
-		RESEND_TIMEOUT=7,
+		BREVO_API_KEY='brevo_test_key',
+		BREVO_API_URL='https://email-provider.test/v3/smtp/email',
+		BREVO_TIMEOUT=7,
 		DEFAULT_FROM_EMAIL='Afyora HMS <verified@afyora.example>',
 	)
-	def test_resend_api_payload_is_used_for_transactional_email(self):
+	def test_brevo_api_payload_is_used_for_transactional_email(self):
 		from unittest.mock import Mock, patch
 		from .utils import send_transactional_email
 
 		response = Mock()
-		response.json.return_value = {'id': 'email_123'}
+		response.ok = True
+		response.json.return_value = {'messageId': 'email_123'}
 		with patch('core.utils.requests.post', return_value=response) as post:
 			message_id = send_transactional_email(
 				to_email='patient@example.com',
@@ -31,17 +32,18 @@ class TransactionalEmailTests(TestCase):
 
 		self.assertEqual(message_id, 'email_123')
 		post.assert_called_once_with(
-			'https://email-provider.test/emails',
+			'https://email-provider.test/v3/smtp/email',
 			headers={
-				'Authorization': 'Bearer re_test_key',
+				'api-key': 'brevo_test_key',
 				'Content-Type': 'application/json',
+				'Accept': 'application/json',
 			},
 			json={
-				'from': 'Afyora HMS <verified@afyora.example>',
-				'to': ['patient@example.com'],
+				'sender': {'name': 'Afyora HMS', 'email': 'verified@afyora.example'},
+				'to': [{'email': 'patient@example.com'}],
 				'subject': 'Verification code',
-				'text': 'Your code is 123456',
-				'html': '<p>Your code is 123456</p>',
+				'textContent': 'Your code is 123456',
+				'htmlContent': '<p>Your code is 123456</p>',
 			},
 			timeout=7,
 		)
@@ -121,6 +123,15 @@ class AuthViewTests(TestCase):
 
 		self.assertEqual(response.status_code, status.HTTP_200_OK)
 		self.assertIn('access_token', response.data)
+
+	def test_refresh_rejects_invalid_token_without_server_error(self):
+		response = self.client.post(
+			reverse('refresh'),
+			{'refreshToken': 'not-a-valid-token'},
+			format='json',
+		)
+
+		self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
 
 class DepartmentViewSetTests(TestCase):
