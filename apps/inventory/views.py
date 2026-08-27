@@ -6,6 +6,7 @@ from django.core.mail import send_mail
 from django.conf import settings
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
@@ -14,6 +15,7 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 from reportlab.lib.styles import getSampleStyleSheet
 
 from core.models import Facility
+from core.utils import check_module_permission
 from .models import Vendor, Supply, Equipment, PurchaseOrder, PurchaseOrderItem
 from .serializers import (
     VendorSerializer,
@@ -22,8 +24,17 @@ from .serializers import (
     PurchaseOrderSerializer
 )
 
-class VendorViewSet(viewsets.ModelViewSet):
+
+class RbacInventoryMixin:
+    """Mixin to enforce the 'inventory' module permission."""
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        if request.user and request.user.is_authenticated:
+            check_module_permission(request.user, 'inventory')
+
+class VendorViewSet(RbacInventoryMixin, viewsets.ModelViewSet):
     serializer_class = VendorSerializer
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         facility_id = self.request.query_params.get('facility')
@@ -36,7 +47,8 @@ class VendorViewSet(viewsets.ModelViewSet):
         facility = get_object_or_404(Facility, pk=facility_id)
         serializer.save(facility=facility)
 
-class EquipmentViewSet(viewsets.ModelViewSet):
+class EquipmentViewSet(RbacInventoryMixin, viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
     serializer_class = EquipmentSerializer
 
     def get_queryset(self):
@@ -50,7 +62,8 @@ class EquipmentViewSet(viewsets.ModelViewSet):
         facility = get_object_or_404(Facility, pk=facility_id)
         serializer.save(facility=facility)
 
-class PurchaseOrderViewSet(viewsets.ModelViewSet):
+class PurchaseOrderViewSet(RbacInventoryMixin, viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
     serializer_class = PurchaseOrderSerializer
 
     def get_queryset(self):
@@ -64,7 +77,8 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
         facility = get_object_or_404(Facility, pk=facility_id)
         serializer.save(facility=facility)
 
-class SupplyViewSet(viewsets.ModelViewSet):
+class SupplyViewSet(RbacInventoryMixin, viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
     serializer_class = SupplySerializer
 
     def get_queryset(self):

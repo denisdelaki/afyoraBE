@@ -5,6 +5,31 @@ from django.contrib.auth.models import AbstractUser
 from django.utils import timezone
 
 # ============================================================================
+# MODULE PERMISSION KEYS
+# ============================================================================
+# These are the canonical keys used across backend and frontend for RBAC.
+ALL_MODULE_PERMISSIONS = [
+    'dashboard_overview',  # Facility-level stats & charts
+    'patients',            # Patient records
+    'appointments',        # Appointment scheduling
+    'visit_queue',         # Visit queue management
+    'ehr',                 # Electronic health records
+    'pharmacy',            # Pharmacy & prescriptions
+    'laboratory',          # Lab tests & results
+    'radiology',           # Imaging orders & reports
+    'billing',             # Invoices & payments
+    'inventory',           # Drug/supply inventory
+    'reports',             # Analytics & reports
+    'employees',           # Employee management
+    'departments',         # Department management
+    'roles',               # Roles management (facility_admin only)
+]
+
+def default_permissions():
+    """Return a permissions dict with all modules disabled by default."""
+    return {key: False for key in ALL_MODULE_PERMISSIONS}
+
+# ============================================================================
 # ABSTRACT BASE MODEL
 # ============================================================================
 # This is a template that other models inherit from
@@ -110,6 +135,59 @@ class Facility(BaseModel):
 
 
 # ============================================================================
+# FACILITY ROLE MODEL (Dynamic RBAC)
+# ============================================================================
+
+class FacilityRole(BaseModel):
+    """
+    A custom role defined by a facility admin.
+
+    Each facility can create unlimited roles (e.g. "Senior Pharmacist",
+    "Head Nurse"). Each role carries a JSON permissions map whose keys
+    are drawn from ALL_MODULE_PERMISSIONS.
+
+    Example permissions:
+    {
+        "pharmacy": true,
+        "inventory": true,
+        "patients": false,
+        ...
+    }
+    """
+
+    facility = models.ForeignKey(
+        Facility,
+        on_delete=models.CASCADE,
+        related_name='roles',
+    )
+
+    name = models.CharField(max_length=100)
+    # Example: "Senior Pharmacist", "ICU Nurse"
+
+    description = models.TextField(blank=True)
+
+    permissions = models.JSONField(
+        default=default_permissions,
+        help_text=(
+            'JSON map of module keys to booleans. '
+            f'Valid keys: {ALL_MODULE_PERMISSIONS}'
+        ),
+    )
+
+    is_system_role = models.BooleanField(
+        default=False,
+        help_text='True for auto-generated default roles; False for custom roles.'
+    )
+
+    class Meta:
+        ordering = ['name']
+        unique_together = ('facility', 'name')
+
+    def __str__(self):
+        return f"{self.name} @ {self.facility.name}"
+
+
+# ============================================================================
 # CUSTOM USER MODEL
 # ============================================================================
 
@@ -154,6 +232,16 @@ class User(AbstractUser, BaseModel):
     
     # User details
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='staff')
+
+    # Dynamic custom role assigned by facility admin
+    # When set, this overrides the static 'role' field for permission checks.
+    custom_role = models.ForeignKey(
+        'FacilityRole',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='users',
+    )
     phone = models.CharField(max_length=20, blank=True)
     date_of_birth = models.DateField(null=True, blank=True)
     profile_picture = models.ImageField(upload_to='users/profiles/', null=True, blank=True)

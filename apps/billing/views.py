@@ -6,6 +6,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from django.db.models import Q
 from core.models import Facility
+from core.utils import check_module_permission
 from patients.models import Patient
 from .models import Invoice, Payment
 from .serializers import InvoiceSerializer, PaymentSerializer, RecordPaymentSerializer
@@ -66,10 +67,15 @@ class InvoiceViewSet(viewsets.ModelViewSet):
     DELETE /api/billing/invoices/{id}/?facilityId=9/
     POST   /api/billing/invoices/{id}/payments?facilityId=9/
     """
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
     queryset = Invoice.objects.select_related('patient', 'facility').prefetch_related('items', 'insurance')
     serializer_class = InvoiceSerializer
     lookup_field = 'id'
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        if request.user and request.user.is_authenticated:
+            check_module_permission(request.user, 'billing')
 
     def get_facility_id(self):
         facility_val = (

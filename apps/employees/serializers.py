@@ -4,7 +4,7 @@ from django.db import transaction
 
 from rest_framework import serializers
 
-from core.models import Department, User
+from core.models import Department, User, FacilityRole
 from .models import Employee
 from .utils import generate_temp_password, send_employee_credentials
 
@@ -19,6 +19,16 @@ class EmployeeSerializer(serializers.ModelSerializer):
     department = serializers.CharField(required=False, allow_blank=True)
     joinDate = serializers.DateField(source='join_date')
 
+    # Custom role: accept role ID from frontend, return role info
+    custom_role = serializers.PrimaryKeyRelatedField(
+        queryset=FacilityRole.objects.none(),  # Overridden in __init__
+        required=False,
+        allow_null=True,
+    )
+    custom_role_id = serializers.IntegerField(source='custom_role.id', read_only=True, allow_null=True)
+    custom_role_name = serializers.CharField(source='custom_role.name', read_only=True, allow_null=True)
+    custom_role_permissions = serializers.SerializerMethodField()
+
     class Meta:
         model = Employee
         fields = [
@@ -32,7 +42,16 @@ class EmployeeSerializer(serializers.ModelSerializer):
             'salary',
             'status',
             'shift',
+            'custom_role',
+            'custom_role_id',
+            'custom_role_name',
+            'custom_role_permissions',
         ]
+
+    def get_custom_role_permissions(self, obj):
+        if obj.custom_role:
+            return obj.custom_role.permissions
+        return None
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -48,6 +67,10 @@ class EmployeeSerializer(serializers.ModelSerializer):
                 "Provide a department name or numeric department ID "
                 f"from your facility: {', '.join(department_choices)}"
             )
+
+        # Restrict custom_role queryset to this facility's roles.
+        if facility is not None:
+            self.fields['custom_role'].queryset = FacilityRole.objects.filter(facility=facility)
 
     def _get_request_facility(self):
         request = self.context.get('request')
@@ -240,6 +263,7 @@ class EmployeeSerializer(serializers.ModelSerializer):
             department=employee.department,
             phone=employee.phone,
             must_change_password=True,
+            custom_role=employee.custom_role,
         )
 
         def _send():

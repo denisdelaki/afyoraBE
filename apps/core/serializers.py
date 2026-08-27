@@ -4,7 +4,7 @@ from rest_framework import serializers
 from django.contrib.auth import authenticate
 from django.contrib.auth.hashers import make_password
 from django.contrib.auth.password_validation import validate_password
-from .models import User, Facility, Department, FacilityOnboarding
+from .models import User, Facility, Department, FacilityOnboarding, FacilityRole, ALL_MODULE_PERMISSIONS
 import re
 
 
@@ -26,6 +26,74 @@ import re
 # Validates it (is email valid? is password strong?)
 # Creates User object in database
 # Returns JSON response to frontend
+
+
+# ============================================================================
+# FACILITY ROLE SERIALIZERS (Dynamic RBAC)
+# ============================================================================
+
+class FacilityRoleSerializer(serializers.ModelSerializer):
+    """
+    Serializer for creating, reading, updating, and deleting custom facility roles.
+    Each role carries a JSON permissions map keyed by module slug.
+    """
+    user_count = serializers.SerializerMethodField()
+    employee_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = FacilityRole
+        fields = [
+            'id', 'name', 'description', 'permissions',
+            'is_system_role', 'user_count', 'employee_count',
+            'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'is_system_role', 'created_at', 'updated_at']
+
+    def get_user_count(self, obj):
+        return obj.users.count()
+
+    def get_employee_count(self, obj):
+        return obj.employees.count()
+
+    def validate_name(self, value):
+        value = value.strip()
+        if len(value) < 2:
+            raise serializers.ValidationError('Role name must be at least 2 characters.')
+        return value
+
+    def validate_permissions(self, value):
+        """Ensure permissions dict only contains valid module keys."""
+        if not isinstance(value, dict):
+            raise serializers.ValidationError('Permissions must be a JSON object.')
+        invalid_keys = set(value.keys()) - set(ALL_MODULE_PERMISSIONS)
+        if invalid_keys:
+            raise serializers.ValidationError(
+                f'Invalid permission keys: {sorted(invalid_keys)}. '
+                f'Valid keys are: {ALL_MODULE_PERMISSIONS}'
+            )
+        # Ensure all values are booleans
+        for key, val in value.items():
+            if not isinstance(val, bool):
+                raise serializers.ValidationError(
+                    f'Permission value for "{key}" must be true or false.'
+                )
+        return value
+
+    def validate(self, data):
+        """Check role name is unique within facility."""
+        request = self.context.get('request')
+        facility = getattr(getattr(request, 'user', None), 'facility', None)
+        instance = getattr(self, 'instance', None)
+        role_name = data.get('name')
+
+        if role_name and facility and FacilityRole.objects.filter(
+            facility=facility,
+            name__iexact=role_name,
+        ).exclude(pk=getattr(instance, 'pk', None)).exists():
+            raise serializers.ValidationError(
+                {'name': 'A role with this name already exists in your facility.'}
+            )
+        return data
 
 
 # ============================================================================
@@ -135,25 +203,76 @@ class UserSerializer(serializers.ModelSerializer):
     """
     Basic user serializer for list/detail views.
     Excludes password for security.
+    Includes custom_role details and permissions for frontend RBAC.
     """
     facility_name = serializers.CharField(source='facility.name', read_only=True)
-    
+    custom_role_id = serializers.PrimaryKeyRelatedField(
+        source='custom_role', read_only=True
+    )
+    custom_role_name = serializers.CharField(
+        source='custom_role.name', read_only=True, default=None
+    )
+    permissions = serializers.SerializerMethodField()
+
     class Meta:
         model = User
         fields = [
             'id', 'username', 'email', 'first_name', 'last_name',
             'role', 'facility', 'facility_name', 'phone',
-            'department', 'is_active', 'is_verified', 'must_change_password', 'created_at'
+            'department', 'is_active', 'is_verified', 'must_change_password',
+            'custom_role_id', 'custom_role_name', 'permissions',
+            'created_at'
         ]
         read_only_fields = ['id', 'created_at']
+
+    def get_permissions(self, obj):
+        """
+        Return the effective permissions for this user.
+        - facility_admin / admin: all modules = True
+        - custom_role present: use its permissions map
+        - fallback: use static role defaults
+        """
+        static_role = getattr(obj, 'role', 'staff')
+
+        if static_role in ('admin', 'facility_admin'):
+            return {key: True for key in ALL_MODULE_PERMISSIONS}
+
+        if obj.custom_role_id:
+            perms = getattr(obj.custom_role, 'permissions', {}) or {}
+            # Fill any missing keys with False
+            return {key: bool(perms.get(key, False)) for key in ALL_MODULE_PERMISSIONS}
+
+        # Static fallback defaults
+        STATIC_DEFAULTS = {
+            'doctor':        {'patients', 'appointments', 'laboratory', 'ehr', 'visit_queue'},
+            'nurse':         {'patients', 'appointments', 'ehr', 'visit_queue'},
+            'receptionist':  {'patients', 'appointments', 'visit_queue'},
+            'pharmacist':    {'pharmacy', 'inventory'},
+            'lab_technician':{'laboratory', 'patients'},
+            'radiologist':   {'radiology', 'patients'},
+            'accountant':    {'billing', 'reports'},
+            'hr':            {'employees', 'departments'},
+            'manager':       set(ALL_MODULE_PERMISSIONS) - {'roles'},
+            'staff':         set(),
+        }
+        allowed = STATIC_DEFAULTS.get(static_role, set())
+        return {key: (key in allowed) for key in ALL_MODULE_PERMISSIONS}
 
 
 class UserDetailSerializer(serializers.ModelSerializer):
     """
-    Detailed user info including employment details.
+    Detailed user info including employment details and effective permissions.
     """
     facility_name = serializers.CharField(source='facility.name', read_only=True)
-    
+    custom_role_id = serializers.PrimaryKeyRelatedField(
+        source='custom_role', read_only=True
+    )
+    custom_role_name = serializers.CharField(
+        source='custom_role.name', read_only=True, default=None
+    )
+    custom_role_permissions = serializers.SerializerMethodField()
+    permissions = serializers.SerializerMethodField()
+
     class Meta:
         model = User
         fields = [
@@ -161,9 +280,40 @@ class UserDetailSerializer(serializers.ModelSerializer):
             'role', 'phone', 'date_of_birth', 'profile_picture',
             'facility', 'facility_name', 'employee_id', 'department',
             'license_number', 'specialization', 'is_active',
-            'is_verified', 'must_change_password', 'last_login', 'created_at', 'updated_at'
+            'is_verified', 'must_change_password', 'last_login',
+            'custom_role_id', 'custom_role_name', 'custom_role_permissions',
+            'permissions',
+            'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'last_login', 'created_at', 'updated_at']
+
+    def get_custom_role_permissions(self, obj):
+        if obj.custom_role:
+            return obj.custom_role.permissions
+        return None
+
+    def get_permissions(self, obj):
+        """Mirror of UserSerializer.get_permissions for consistency."""
+        static_role = getattr(obj, 'role', 'staff')
+        if static_role in ('admin', 'facility_admin'):
+            return {key: True for key in ALL_MODULE_PERMISSIONS}
+        if obj.custom_role_id:
+            perms = getattr(obj.custom_role, 'permissions', {}) or {}
+            return {key: bool(perms.get(key, False)) for key in ALL_MODULE_PERMISSIONS}
+        STATIC_DEFAULTS = {
+            'doctor':        {'patients', 'appointments', 'laboratory', 'ehr', 'visit_queue'},
+            'nurse':         {'patients', 'appointments', 'ehr', 'visit_queue'},
+            'receptionist':  {'patients', 'appointments', 'visit_queue'},
+            'pharmacist':    {'pharmacy', 'inventory'},
+            'lab_technician':{'laboratory', 'patients'},
+            'radiologist':   {'radiology', 'patients'},
+            'accountant':    {'billing', 'reports'},
+            'hr':            {'employees', 'departments'},
+            'manager':       set(ALL_MODULE_PERMISSIONS) - {'roles'},
+            'staff':         set(),
+        }
+        allowed = STATIC_DEFAULTS.get(static_role, set())
+        return {key: (key in allowed) for key in ALL_MODULE_PERMISSIONS}
 
 
 # ============================================================================

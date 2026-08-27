@@ -17,7 +17,7 @@ from django.contrib.auth.tokens import default_token_generator
 from django.core.mail import EmailMultiAlternatives
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
-from .models import User, Facility, Department, FacilityOnboarding, AuditLog, EmailOTP
+from .models import User, Facility, Department, FacilityOnboarding, AuditLog, EmailOTP, FacilityRole, ALL_MODULE_PERMISSIONS
 from .utils import generate_and_send_otp
 from .serializers import (
     SignupSerializer, LoginSerializer, SignupResponseSerializer,
@@ -25,6 +25,7 @@ from .serializers import (
     FacilityListSerializer, FacilityDetailSerializer, FacilityWriteSerializer,
     DepartmentSerializer, VerifyOTPSerializer, ResendOTPSerializer,
     PasswordResetRequestSerializer, PasswordResetConfirmSerializer,
+    FacilityRoleSerializer,
 )
 
 
@@ -1066,4 +1067,177 @@ class DepartmentViewSet(viewsets.ModelViewSet):
             model_name='Department',
             object_id=str(serializer.instance.id),
             description=f'Department created: {serializer.instance.name}'
+        )
+
+
+# ============================================================================
+# FACILITY ROLE VIEWSET (Dynamic RBAC)
+# ============================================================================
+
+class FacilityRoleViewSet(viewsets.ModelViewSet):
+    """
+    CRUD for custom roles scoped to the logged-in facility.
+
+    Endpoints:
+    - GET  /api/roles/          → list roles (all authenticated)
+    - POST /api/roles/          → create role (facility_admin only)
+    - GET  /api/roles/{id}/     → retrieve role
+    - PUT  /api/roles/{id}/     → update role (facility_admin only)
+    - PATCH /api/roles/{id}/    → partial update role (facility_admin only)
+    - DELETE /api/roles/{id}/   → delete role (facility_admin only)
+
+    Custom endpoints:
+    - GET  /api/roles/modules/         → list all available permission module keys
+    - POST /api/roles/{id}/assign/     → assign this role to a user
+    """
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = FacilityRoleSerializer
+    search_fields = ['name', 'description']
+    ordering = ['name']
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.role == 'admin':
+            facility_id = self.request.query_params.get('facility_id')
+            if facility_id:
+                return FacilityRole.objects.filter(facility_id=facility_id)
+            return FacilityRole.objects.all()
+        if user.facility:
+            return FacilityRole.objects.filter(facility=user.facility)
+        return FacilityRole.objects.none()
+
+    def _require_facility_admin(self):
+        user = self.request.user
+        if user.role not in ('admin', 'facility_admin'):
+            raise PermissionDenied('Only facility administrators can manage roles.')
+
+    def perform_create(self, serializer):
+        self._require_facility_admin()
+        facility = self.request.user.facility
+        if facility is None:
+            raise PermissionDenied('Your account is not assigned to a facility.')
+        role = serializer.save(facility=facility)
+        AuditLog.objects.create(
+            facility=facility,
+            user=self.request.user,
+            action='create',
+            model_name='FacilityRole',
+            object_id=str(role.id),
+            description=f'Role created: {role.name}',
+        )
+
+    def perform_update(self, serializer):
+        self._require_facility_admin()
+        role = serializer.save()
+        AuditLog.objects.create(
+            facility=self.request.user.facility,
+            user=self.request.user,
+            action='update',
+            model_name='FacilityRole',
+            object_id=str(role.id),
+            description=f'Role updated: {role.name}',
+        )
+
+    def perform_destroy(self, instance):
+        self._require_facility_admin()
+        facility = self.request.user.facility
+        role_name = instance.name
+        # Unlink all users and employees before deletion
+        instance.users.all().update(custom_role=None)
+        instance.employees.all().update(custom_role=None)
+        instance.delete()
+        AuditLog.objects.create(
+            facility=facility,
+            user=self.request.user,
+            action='delete',
+            model_name='FacilityRole',
+            object_id='deleted',
+            description=f'Role deleted: {role_name}',
+        )
+
+    @action(detail=False, methods=['get'], url_path='modules')
+    def modules(self, request):
+        """GET /api/roles/modules/ — return all available permission module keys."""
+        return Response({'modules': ALL_MODULE_PERMISSIONS})
+
+    @action(detail=True, methods=['post'], url_path='assign')
+    def assign(self, request, pk=None):
+        """
+        POST /api/roles/{id}/assign/
+        Assign this role to a user or employee.
+
+        Body: { "user_id": 5 }  OR  { "employee_id": "EMP001" }
+        """
+        self._require_facility_admin()
+        role = self.get_object()
+        facility = self.request.user.facility
+
+        user_id = request.data.get('user_id')
+        employee_id = request.data.get('employee_id')
+
+        if not user_id and not employee_id:
+            return Response(
+                {'error': 'Provide either user_id or employee_id.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        updated = []
+
+        if user_id:
+            try:
+                target_user = User.objects.get(id=user_id, facility=facility)
+                target_user.custom_role = role
+                target_user.save(update_fields=['custom_role', 'updated_at'])
+                updated.append(f'user:{user_id}')
+                AuditLog.objects.create(
+                    facility=facility,
+                    user=request.user,
+                    action='update',
+                    model_name='User',
+                    object_id=str(user_id),
+                    description=f'Custom role "{role.name}" assigned to user {user_id}.',
+                )
+            except User.DoesNotExist:
+                return Response(
+                    {'error': f'User {user_id} not found in your facility.'},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+        if employee_id:
+            # Import here to avoid circular import
+            from employees.models import Employee
+            try:
+                emp = Employee.objects.get(employee_id=employee_id, facility=facility)
+                emp.custom_role = role
+                emp.save(update_fields=['custom_role', 'updated_at'])
+                # Also update the linked user account if it exists
+                linked_user = User.objects.filter(
+                    email=emp.email, facility=facility
+                ).first()
+                if linked_user:
+                    linked_user.custom_role = role
+                    linked_user.save(update_fields=['custom_role', 'updated_at'])
+                updated.append(f'employee:{employee_id}')
+                AuditLog.objects.create(
+                    facility=facility,
+                    user=request.user,
+                    action='update',
+                    model_name='Employee',
+                    object_id=employee_id,
+                    description=f'Custom role "{role.name}" assigned to employee {employee_id}.',
+                )
+            except Employee.DoesNotExist:
+                return Response(
+                    {'error': f'Employee {employee_id} not found in your facility.'},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+        return Response(
+            {
+                'message': f'Role "{role.name}" assigned successfully.',
+                'updated': updated,
+                'role': FacilityRoleSerializer(role).data,
+            },
+            status=status.HTTP_200_OK,
         )

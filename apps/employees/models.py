@@ -1,5 +1,5 @@
 from django.db import models
-from core.models import BaseModel, Facility
+from core.models import BaseModel, Facility, FacilityRole
 
 
 class Employee(BaseModel):
@@ -32,6 +32,16 @@ class Employee(BaseModel):
 	salary = models.DecimalField(max_digits=12, decimal_places=2, default=0)
 	status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Active')
 	shift = models.CharField(max_length=20, choices=SHIFT_CHOICES, default='Morning')
+
+	# Dynamic role assigned by facility_admin for permission-based access control.
+	# Nullable — employees without a custom_role fall back to static role-based access.
+	custom_role = models.ForeignKey(
+		FacilityRole,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='employees',
+	)
 
 	class Meta:
 		ordering = ['-created_at']

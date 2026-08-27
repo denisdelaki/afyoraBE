@@ -5,12 +5,19 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from core.models import Facility
+from core.utils import check_module_permission
 from .models import LabRequest, LabResult, LabTest
 from .serializers import LabRequestSerializer, LabResultSerializer, LabTestSerializer
 
 
 class FacilityScopedLaboratoryViewSet(viewsets.ModelViewSet):
 	permission_classes = [IsAuthenticated]
+	MODULE_KEY = 'laboratory'
+
+	def initial(self, request, *args, **kwargs):
+		super().initial(request, *args, **kwargs)
+		if request.user and request.user.is_authenticated:
+			check_module_permission(request.user, self.MODULE_KEY)
 
 	@staticmethod
 	def _parse_facility_id(value, error_message):

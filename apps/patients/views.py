@@ -8,12 +8,19 @@ from rest_framework.response import Response
 from rest_framework import status
 
 from core.models import User
+from core.utils import check_module_permission
 from .models import EhrRecord, OutpatientTicket, OutpatientTicketMovement, Patient, PatientVisit
 from .serializers import EhrRecordSerializer, OutpatientTicketSerializer, PatientSerializer, PatientVisitSerializer
 
 
 class PatientViewSet(viewsets.ModelViewSet):
 	permission_classes = [IsAuthenticated]
+	MODULE_KEY = 'patients'
+
+	def initial(self, request, *args, **kwargs):
+		super().initial(request, *args, **kwargs)
+		if request.user and request.user.is_authenticated:
+			check_module_permission(request.user, self.MODULE_KEY)
 	serializer_class = PatientSerializer
 	lookup_field = 'patient_id'
 	http_method_names = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options']
@@ -203,6 +210,12 @@ class PatientVisitViewSet(viewsets.ModelViewSet):
 
 
 class OutpatientTicketViewSet(viewsets.ModelViewSet):
+	MODULE_KEY = 'visit_queue'
+
+	def initial(self, request, *args, **kwargs):
+		super().initial(request, *args, **kwargs)
+		if request.user and request.user.is_authenticated:
+			check_module_permission(request.user, self.MODULE_KEY)
 	"""A small, explicit queue for moving an outpatient through a facility."""
 
 	permission_classes = [IsAuthenticated]
@@ -351,6 +364,12 @@ class OutpatientTicketViewSet(viewsets.ModelViewSet):
 
 class EhrRecordViewSet(viewsets.ModelViewSet):
 	permission_classes = [IsAuthenticated]
+	MODULE_KEY = 'ehr'
+
+	def initial(self, request, *args, **kwargs):
+		super().initial(request, *args, **kwargs)
+		if request.user and request.user.is_authenticated:
+			check_module_permission(request.user, self.MODULE_KEY)
 	serializer_class = EhrRecordSerializer
 	lookup_url_kwarg = 'ehr_id'
 	http_method_names = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options']

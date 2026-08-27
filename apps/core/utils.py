@@ -9,9 +9,72 @@ from email.utils import parseaddr
 import requests
 from django.conf import settings
 from django.utils import timezone
+from rest_framework.exceptions import PermissionDenied
 from .models import EmailOTP
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# RBAC PERMISSION HELPER
+# ============================================================================
+
+def check_module_permission(user, module_key: str) -> None:
+    """
+    Raise PermissionDenied if the user lacks access to the given module.
+
+    Logic:
+    1. facility_admin and admin always have full access.
+    2. If the user has a custom_role with a permissions map, evaluate that.
+    3. If the user has no custom_role, fall back to static role-based defaults.
+
+    Raises PermissionDenied if access is denied.
+    """
+    if not user or not getattr(user, 'is_authenticated', False):
+        raise PermissionDenied('Authentication required.')
+
+    static_role = getattr(user, 'role', 'staff')
+
+    # Admins and facility admins always pass.
+    if static_role in ('admin', 'facility_admin'):
+        return
+
+    # Check dynamic custom role permissions first.
+    custom_role = getattr(user, 'custom_role', None)
+    if custom_role is not None:
+        perms = getattr(custom_role, 'permissions', {}) or {}
+        if perms.get(module_key, False):
+            return
+        raise PermissionDenied(
+            f'Your role "{custom_role.name}" does not have access to the {module_key} module.'
+        )
+
+    # Fallback: static role defaults (mirrors frontend ROLE_PROFILES).
+    STATIC_ROLE_PERMISSIONS: dict[str, set] = {
+        'doctor':        {'patients', 'appointments', 'laboratory', 'ehr', 'visit_queue'},
+        'nurse':         {'patients', 'appointments', 'ehr', 'visit_queue'},
+        'receptionist':  {'patients', 'appointments', 'visit_queue'},
+        'pharmacist':    {'pharmacy', 'inventory'},
+        'lab_technician':{'laboratory', 'patients'},
+        'radiologist':   {'radiology', 'patients'},
+        'accountant':    {'billing', 'reports'},
+        'hr':            {'employees', 'departments'},
+        'manager':       {
+            'patients', 'appointments', 'laboratory', 'pharmacy',
+            'radiology', 'billing', 'inventory', 'reports',
+            'employees', 'departments', 'ehr', 'visit_queue',
+            'dashboard_overview',
+        },
+        'staff':         set(),
+    }
+
+    allowed = STATIC_ROLE_PERMISSIONS.get(static_role, set())
+    if module_key in allowed:
+        return
+
+    raise PermissionDenied(
+        f'Your role "{static_role}" does not have access to the {module_key} module.'
+    )
 
 
 def send_transactional_email(*, to_email: str, subject: str, text: str, html: str) -> str:

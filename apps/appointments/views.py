@@ -4,12 +4,19 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from core.utils import check_module_permission
 from .models import Appointment
 from .serializers import AppointmentSerializer
 
 
 class AppointmentViewSet(viewsets.ModelViewSet):
 	permission_classes = [IsAuthenticated]
+	MODULE_KEY = 'appointments'
+
+	def initial(self, request, *args, **kwargs):
+		super().initial(request, *args, **kwargs)
+		if request.user and request.user.is_authenticated:
+			check_module_permission(request.user, self.MODULE_KEY)
 	serializer_class = AppointmentSerializer
 	lookup_field = 'appointment_id'
 	http_method_names = ['get', 'post', 'put', 'patch', 'head', 'options']

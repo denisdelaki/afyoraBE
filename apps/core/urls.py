@@ -5,7 +5,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     SignupView, LoginView, RefreshView, LogoutView, CompleteOnboardingView,
     VerifyOTPView, ResendOTPView, PasswordResetRequestView, PasswordResetConfirmView,
-    UserViewSet, FacilityViewSet, DepartmentViewSet,
+    UserViewSet, FacilityViewSet, DepartmentViewSet, FacilityRoleViewSet,
 )
 
 # ============================================================================
@@ -29,6 +29,7 @@ router = DefaultRouter()
 router.register(r'users', UserViewSet, basename='user')
 router.register(r'facilities', FacilityViewSet, basename='facility')
 router.register(r'departments', DepartmentViewSet, basename='department')
+router.register(r'roles', FacilityRoleViewSet, basename='facilityrole')
 
 # URL Patterns
 urlpatterns = [

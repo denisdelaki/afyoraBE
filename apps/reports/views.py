@@ -2,10 +2,11 @@ from datetime import datetime, timedelta
 from django.db import models
 from django.db.models import Avg, Count, F, Q, Sum
 from rest_framework import status
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from core.utils import check_module_permission
 from .models import SavedReport
 from .serializers import SavedReportSerializer
 
@@ -70,9 +71,10 @@ def get_date_range(time_range, start_date=None, end_date=None):
 
 
 class ReportDataAPIView(APIView):
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        check_module_permission(request.user, 'reports')
         report_type = request.query_params.get('reportType', 'general')
         time_range = request.query_params.get('timeRange', '30days')
         start_date = request.query_params.get('startDate')
