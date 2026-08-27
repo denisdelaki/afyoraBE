@@ -111,6 +111,67 @@ class PatientVisit(BaseModel):
 		return f"Visit {self.id} - {self.patient.patient_id} on {self.visit_date}"
 
 
+class OutpatientTicket(BaseModel):
+	"""The patient's current place in the outpatient workflow."""
+
+	DESTINATION_CHOICES = (
+		('reception', 'Reception'),
+		('consultation', 'Consultation'),
+		('laboratory', 'Laboratory'),
+		('radiology', 'Radiology'),
+		('pharmacy', 'Pharmacy'),
+		('billing', 'Billing'),
+	)
+	STATUS_CHOICES = (
+		('waiting', 'Waiting'),
+		('called', 'Called'),
+		('completed', 'Completed'),
+	)
+
+	facility = models.ForeignKey(Facility, on_delete=models.CASCADE, related_name='outpatient_tickets')
+	patient = models.ForeignKey(Patient, on_delete=models.CASCADE, related_name='outpatient_tickets')
+	ticket_number = models.CharField(max_length=30)
+	destination = models.CharField(max_length=20, choices=DESTINATION_CHOICES, default='consultation')
+	assigned_to = models.ForeignKey(
+		'core.User', on_delete=models.SET_NULL, null=True, blank=True,
+		related_name='assigned_outpatient_tickets',
+	)
+	status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='waiting')
+	created_by = models.ForeignKey('core.User', on_delete=models.SET_NULL, null=True, related_name='created_outpatient_tickets')
+	called_by = models.ForeignKey(
+		'core.User', on_delete=models.SET_NULL, null=True, blank=True,
+		related_name='called_outpatient_tickets',
+	)
+	notes = models.TextField(blank=True)
+	completed_at = models.DateTimeField(null=True, blank=True)
+
+	class Meta:
+		ordering = ['created_at']
+		unique_together = ('facility', 'ticket_number')
+		indexes = [
+			models.Index(fields=['facility', 'destination', 'status', 'created_at']),
+			models.Index(fields=['facility', 'patient', 'status']),
+		]
+
+	def __str__(self):
+		return f"{self.ticket_number} - {self.patient}"
+
+
+class OutpatientTicketMovement(models.Model):
+	"""An immutable record of every hand-off made for a ticket."""
+
+	ticket = models.ForeignKey(OutpatientTicket, on_delete=models.CASCADE, related_name='movements')
+	from_destination = models.CharField(max_length=20, choices=OutpatientTicket.DESTINATION_CHOICES, blank=True)
+	to_destination = models.CharField(max_length=20, choices=OutpatientTicket.DESTINATION_CHOICES)
+	forwarded_by = models.ForeignKey('core.User', on_delete=models.SET_NULL, null=True, related_name='ticket_forwards')
+	assigned_to = models.ForeignKey('core.User', on_delete=models.SET_NULL, null=True, blank=True, related_name='ticket_assignments')
+	notes = models.TextField(blank=True)
+	created_at = models.DateTimeField(auto_now_add=True)
+
+	class Meta:
+		ordering = ['created_at']
+
+
 class EhrRecord(BaseModel):
 	facility = models.ForeignKey(
 		Facility,

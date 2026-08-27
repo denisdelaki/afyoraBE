@@ -2,7 +2,7 @@ from django.test import TestCase
 from rest_framework.test import APIClient
 
 from core.models import Facility, User
-from .models import Patient, PatientVisit
+from .models import OutpatientTicket, Patient, PatientVisit
 
 
 class PatientAPITests(TestCase):
@@ -232,6 +232,7 @@ class PatientVisitAPITests(TestCase):
 		visit.refresh_from_db()
 		self.assertFalse(visit.is_active)
 
+
 	def test_list_visits_requires_facility_id(self):
 		response = self.client.get('/api/patients/visits/')
 
@@ -308,3 +309,44 @@ class PatientVisitAPITests(TestCase):
 
 		visit.refresh_from_db()
 		self.assertFalse(visit.is_active)
+
+
+class OutpatientTicketAPITests(TestCase):
+	def setUp(self):
+		self.facility = Facility.objects.create(name='Queue Clinic', facility_type='clinic', registration_number='REG-QUEUE', email='queue@example.com', phone='0700000001')
+		self.receptionist = User.objects.create_user(username='queue-reception', password='StrongPass123!', facility=self.facility, role='receptionist')
+		self.doctor = User.objects.create_user(username='queue-doctor', password='StrongPass123!', facility=self.facility, role='doctor')
+		self.lab_technician = User.objects.create_user(username='queue-lab', password='StrongPass123!', facility=self.facility, role='lab_technician')
+		self.patient = Patient.objects.create(facility=self.facility, patient_id='PAT-QUEUE', first_name='Queue', last_name='Patient')
+		self.client = APIClient()
+
+	def test_ticket_moves_from_consultation_to_laboratory_and_completes(self):
+		self.client.force_authenticate(user=self.receptionist)
+		created = self.client.post('/api/patients/tickets/', {
+			'facilityId': self.facility.id, 'patientId': self.patient.patient_id,
+			'destination': 'consultation', 'assignedTo': self.doctor.id,
+		}, format='json')
+		self.assertEqual(created.status_code, 201)
+		ticket_id = created.data['id']
+		self.assertTrue(created.data['ticketNumber'].startswith('OP-'))
+		self.assertEqual(len(created.data['movements']), 1)
+
+		self.client.force_authenticate(user=self.doctor)
+		called = self.client.post(f'/api/patients/tickets/{ticket_id}/call/?facilityId={self.facility.id}', {}, format='json')
+		self.assertEqual(called.status_code, 200)
+		forwarded = self.client.post(
+			f'/api/patients/tickets/{ticket_id}/forward/?facilityId={self.facility.id}',
+			{'destination': 'laboratory', 'assignedTo': self.lab_technician.id, 'notes': 'FBC requested'}, format='json',
+		)
+		self.assertEqual(forwarded.status_code, 200)
+		self.assertEqual(forwarded.data['destination'], 'laboratory')
+		self.assertEqual(forwarded.data['status'], 'waiting')
+		self.assertEqual(len(forwarded.data['movements']), 2)
+
+		self.client.force_authenticate(user=self.lab_technician)
+		self.client.post(f'/api/patients/tickets/{ticket_id}/call/?facilityId={self.facility.id}', {}, format='json')
+		completed = self.client.post(f'/api/patients/tickets/{ticket_id}/complete/?facilityId={self.facility.id}', {}, format='json')
+		self.assertEqual(completed.status_code, 200)
+		self.assertEqual(completed.data['status'], 'completed')
+		self.assertIsNotNone(completed.data['completedAt'])
+		self.assertEqual(OutpatientTicket.objects.get(id=ticket_id).movements.count(), 2)

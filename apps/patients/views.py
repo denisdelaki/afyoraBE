@@ -1,11 +1,15 @@
+from django.db import IntegrityError, transaction
+from django.utils import timezone
 from rest_framework import viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 
-from .models import EhrRecord, Patient, PatientVisit
-from .serializers import EhrRecordSerializer, PatientSerializer, PatientVisitSerializer
+from core.models import User
+from .models import EhrRecord, OutpatientTicket, OutpatientTicketMovement, Patient, PatientVisit
+from .serializers import EhrRecordSerializer, OutpatientTicketSerializer, PatientSerializer, PatientVisitSerializer
 
 
 class PatientViewSet(viewsets.ModelViewSet):
@@ -196,6 +200,153 @@ class PatientVisitViewSet(viewsets.ModelViewSet):
 			if not is_used_elsewhere and linked_prescription.is_active:
 				linked_prescription.is_active = False
 				linked_prescription.save(update_fields=['is_active', 'updated_at'])
+
+
+class OutpatientTicketViewSet(viewsets.ModelViewSet):
+	"""A small, explicit queue for moving an outpatient through a facility."""
+
+	permission_classes = [IsAuthenticated]
+	serializer_class = OutpatientTicketSerializer
+	http_method_names = ['get', 'post', 'head', 'options']
+	search_fields = ['ticket_number', 'patient__patient_id', 'patient__first_name', 'patient__last_name']
+	ordering = ['created_at']
+
+	ROLE_BY_DESTINATION = {
+		'reception': {'receptionist'},
+		'consultation': {'doctor', 'nurse'},
+		'laboratory': {'lab_technician'},
+		'radiology': {'radiologist'},
+		'pharmacy': {'pharmacist'},
+		'billing': {'accountant'},
+	}
+	PRIVILEGED_ROLES = {'admin', 'facility_admin', 'manager'}
+
+	@staticmethod
+	def _parse_facility_id(value, error_message):
+		if isinstance(value, str):
+			value = value.strip().rstrip('/')
+		try:
+			return int(value)
+		except (TypeError, ValueError):
+			raise ValidationError({'facilityId': error_message})
+
+	def _get_facility_id(self, from_body=False):
+		values = self.request.data if from_body else self.request.query_params
+		facility_id = values.get('facilityId') or values.get('facility_id')
+		if facility_id is None:
+			raise ValidationError({'facilityId': 'facilityId is required.'})
+		return self._parse_facility_id(facility_id, 'facilityId must be a valid integer.')
+
+	def _enforce_facility_access(self, facility_id):
+		user = self.request.user
+		if user.facility_id and user.facility_id != facility_id:
+			raise PermissionDenied('You cannot access tickets from another facility.')
+		if not user.facility_id and user.role != 'admin':
+			raise PermissionDenied('Your account is not assigned to a facility.')
+
+	def get_queryset(self):
+		facility_id = self._get_facility_id()
+		self._enforce_facility_access(facility_id)
+		queryset = OutpatientTicket.objects.filter(facility_id=facility_id, is_active=True).select_related('patient', 'assigned_to')
+		for field in ('destination', 'status', 'assignedTo'):
+			value = self.request.query_params.get(field)
+			if value:
+				queryset = queryset.filter(**{'assigned_to_id' if field == 'assignedTo' else field: value})
+		return queryset
+
+	def _next_ticket_number(self, facility_id):
+		prefix = f"OP-{timezone.localdate():%Y%m%d}-"
+		existing = OutpatientTicket.objects.filter(facility_id=facility_id, ticket_number__startswith=prefix)
+		return f'{prefix}{existing.count() + 1:03d}'
+
+	def create(self, request, *args, **kwargs):
+		facility_id = self._get_facility_id(from_body=True)
+		self._enforce_facility_access(facility_id)
+		if request.user.role not in {'admin', 'facility_admin', 'manager', 'receptionist', 'nurse'}:
+			raise PermissionDenied('Only reception staff can create outpatient tickets.')
+		serializer = self.get_serializer(data=request.data)
+		serializer.is_valid(raise_exception=True)
+		# A retry makes the simple daily number safe when two receptionists create at once.
+		for _ in range(3):
+			try:
+				with transaction.atomic():
+					ticket = serializer.save(
+						facility_id=facility_id,
+						ticket_number=self._next_ticket_number(facility_id),
+						created_by=request.user,
+					)
+					OutpatientTicketMovement.objects.create(
+						ticket=ticket, to_destination=ticket.destination,
+						forwarded_by=request.user, assigned_to=ticket.assigned_to,
+						notes=ticket.notes,
+					)
+				break
+			except IntegrityError:
+				continue
+		else:
+			raise ValidationError({'detail': 'Unable to allocate a ticket number. Please retry.'})
+		return Response(self.get_serializer(ticket).data, status=status.HTTP_201_CREATED)
+
+	def _can_work_ticket(self, ticket):
+		user = self.request.user
+		if user.role in self.PRIVILEGED_ROLES:
+			return True
+		if ticket.assigned_to_id:
+			return ticket.assigned_to_id == user.id
+		return user.role in self.ROLE_BY_DESTINATION[ticket.destination]
+
+	@action(detail=True, methods=['post'])
+	def call(self, request, pk=None):
+		ticket = self.get_object()
+		if ticket.status != 'waiting':
+			raise ValidationError({'status': 'Only waiting tickets can be called.'})
+		if not self._can_work_ticket(ticket):
+			raise PermissionDenied('This ticket is not in your queue.')
+		ticket.status = 'called'
+		ticket.called_by = request.user
+		ticket.save(update_fields=['status', 'called_by', 'updated_at'])
+		return Response(self.get_serializer(ticket).data)
+
+	@action(detail=True, methods=['post'])
+	def forward(self, request, pk=None):
+		ticket = self.get_object()
+		if ticket.status != 'called':
+			raise ValidationError({'status': 'Call the ticket before forwarding it.'})
+		if ticket.called_by_id != request.user.id and request.user.role not in self.PRIVILEGED_ROLES:
+			raise PermissionDenied('Only the staff member handling this ticket can forward it.')
+		destination = request.data.get('destination')
+		if destination not in dict(OutpatientTicket.DESTINATION_CHOICES):
+			raise ValidationError({'destination': 'Choose a valid destination.'})
+		assigned_to = None
+		if request.data.get('assignedTo') not in (None, ''):
+			assigned_to = User.objects.filter(id=request.data['assignedTo'], facility_id=ticket.facility_id, is_active=True).first()
+			if assigned_to is None:
+				raise ValidationError({'assignedTo': 'The assigned user must belong to this facility.'})
+		notes = request.data.get('notes', '')
+		OutpatientTicketMovement.objects.create(
+			ticket=ticket, from_destination=ticket.destination, to_destination=destination,
+			forwarded_by=request.user, assigned_to=assigned_to, notes=notes,
+		)
+		ticket.destination = destination
+		ticket.assigned_to = assigned_to
+		ticket.status = 'waiting'
+		ticket.called_by = None
+		if notes:
+			ticket.notes = notes
+		ticket.save(update_fields=['destination', 'assigned_to', 'status', 'called_by', 'notes', 'updated_at'])
+		return Response(self.get_serializer(ticket).data)
+
+	@action(detail=True, methods=['post'])
+	def complete(self, request, pk=None):
+		ticket = self.get_object()
+		if ticket.status != 'called':
+			raise ValidationError({'status': 'Call the ticket before completing it.'})
+		if ticket.called_by_id != request.user.id and request.user.role not in self.PRIVILEGED_ROLES:
+			raise PermissionDenied('Only the staff member handling this ticket can complete it.')
+		ticket.status = 'completed'
+		ticket.completed_at = timezone.now()
+		ticket.save(update_fields=['status', 'completed_at', 'updated_at'])
+		return Response(self.get_serializer(ticket).data)
 
 
 class EhrRecordViewSet(viewsets.ModelViewSet):

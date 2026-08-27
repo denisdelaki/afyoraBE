@@ -4,8 +4,9 @@ from datetime import date
 import time
 from django.db import IntegrityError, OperationalError, transaction
 
-from .models import EhrRecord, Patient, PatientVisit
+from .models import EhrRecord, OutpatientTicket, OutpatientTicketMovement, Patient, PatientVisit
 from pharmacy.models import Drug, Prescription
+from core.models import User
 
 
 class DrugSerializer(serializers.Serializer):
@@ -466,6 +467,80 @@ class PatientVisitSerializer(serializers.ModelSerializer):
             data['prescription'] = prescription_id
 
         return data
+
+
+class OutpatientTicketMovementSerializer(serializers.ModelSerializer):
+    fromDestination = serializers.CharField(source='from_destination')
+    toDestination = serializers.CharField(source='to_destination')
+    forwardedBy = serializers.IntegerField(source='forwarded_by_id', read_only=True)
+    assignedTo = serializers.IntegerField(source='assigned_to_id', read_only=True)
+
+    class Meta:
+        model = OutpatientTicketMovement
+        fields = [
+            'id', 'fromDestination', 'toDestination', 'forwardedBy', 'assignedTo',
+            'notes', 'created_at',
+        ]
+
+
+class OutpatientTicketSerializer(serializers.ModelSerializer):
+    facilityId = serializers.IntegerField(source='facility_id', required=False)
+    patientId = serializers.CharField(write_only=True, required=False)
+    patientName = serializers.SerializerMethodField()
+    ticketNumber = serializers.CharField(source='ticket_number', read_only=True)
+    assignedTo = serializers.PrimaryKeyRelatedField(
+        source='assigned_to', queryset=User.objects.all(),
+        required=False, allow_null=True,
+    )
+    createdBy = serializers.IntegerField(source='created_by_id', read_only=True)
+    calledBy = serializers.IntegerField(source='called_by_id', read_only=True)
+    completedAt = serializers.DateTimeField(source='completed_at', read_only=True)
+    movements = OutpatientTicketMovementSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = OutpatientTicket
+        fields = [
+            'id', 'facilityId', 'patientId', 'patientName', 'ticketNumber', 'destination',
+            'assignedTo', 'status', 'createdBy', 'calledBy', 'notes', 'completedAt',
+            'movements', 'created_at', 'updated_at',
+        ]
+        read_only_fields = [
+            'id', 'ticketNumber', 'status', 'createdBy', 'calledBy', 'completedAt',
+            'movements', 'created_at', 'updated_at',
+        ]
+
+    def get_patientName(self, obj):
+        return f'{obj.patient.first_name} {obj.patient.last_name}'.strip()
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        patient_id = attrs.pop('patientId', None)
+        facility_id = attrs.get('facility_id')
+
+        if self.instance is None:
+            if not patient_id:
+                raise serializers.ValidationError({'patientId': 'patientId is required.'})
+            if facility_id is None:
+                raise serializers.ValidationError({'facilityId': 'facilityId is required.'})
+            patient = Patient.objects.filter(
+                facility_id=facility_id, patient_id=patient_id, is_active=True,
+            ).first()
+            if patient is None:
+                raise serializers.ValidationError({'patientId': 'Patient not found for the provided facilityId.'})
+            attrs['patient'] = patient
+        elif 'facility_id' in attrs and attrs['facility_id'] != self.instance.facility_id:
+            raise serializers.ValidationError({'facilityId': 'A ticket cannot be moved to another facility.'})
+
+        assigned_to = attrs.get('assigned_to')
+        target_facility_id = facility_id or (self.instance.facility_id if self.instance else None)
+        if assigned_to is not None and assigned_to.facility_id != target_facility_id:
+            raise serializers.ValidationError({'assignedTo': 'The assigned user must belong to this facility.'})
+        return attrs
+
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        ret['patientId'] = instance.patient.patient_id
+        return ret
 
 
 class EhrRecordSerializer(serializers.ModelSerializer):

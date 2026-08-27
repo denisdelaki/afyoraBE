@@ -1,13 +1,16 @@
 from django.urls import include, path, re_path
 from rest_framework.routers import DefaultRouter
 
-from .views import EhrRecordViewSet, PatientViewSet, PatientVisitViewSet, PatientVisitHistoryViewSet
+from .views import EhrRecordViewSet, OutpatientTicketViewSet, PatientViewSet, PatientVisitViewSet, PatientVisitHistoryViewSet
 
 router = DefaultRouter(trailing_slash='/?')
 router.register(r'', PatientViewSet, basename='patient')
 
 visit_router = DefaultRouter(trailing_slash='/?')
 visit_router.register(r'', PatientVisitViewSet, basename='patient-visit')
+
+ticket_router = DefaultRouter(trailing_slash='/?')
+ticket_router.register(r'', OutpatientTicketViewSet, basename='outpatient-ticket')
 
 urlpatterns = [
 	re_path(
@@ -45,5 +48,6 @@ urlpatterns = [
 		name='patient-ehr-detail',
 	),
 	path('visits/', include(visit_router.urls)),
+	path('tickets/', include(ticket_router.urls)),
 	path('', include(router.urls)),
 ]
