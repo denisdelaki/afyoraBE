@@ -111,9 +111,19 @@ class Facility(BaseModel):
     website = models.URLField(blank=True)
     
     # Subscription/License Info
-    subscription_active = models.BooleanField(default=True)
-    # True if facility has paid subscription
+    PACKAGE_CHOICES = (
+        ('basic', 'Basic Plan'),
+        ('professional', 'Professional Plan'),
+        ('enterprise', 'Enterprise Plan'),
+    )
+    CYCLE_CHOICES = (
+        ('monthly', 'Monthly'),
+        ('yearly', 'Yearly'),
+    )
     
+    subscription_active = models.BooleanField(default=True)
+    subscription_package = models.CharField(max_length=50, choices=PACKAGE_CHOICES, default='professional')
+    subscription_billing_cycle = models.CharField(max_length=20, choices=CYCLE_CHOICES, default='monthly')
     subscription_start_date = models.DateField(null=True, blank=True)
     subscription_end_date = models.DateField(null=True, blank=True)
     
@@ -131,6 +141,46 @@ class Facility(BaseModel):
     
     class Meta:
         ordering = ['-created_at']
+
+
+# ============================================================================
+# FACILITY SUBSCRIPTION PAYMENT MODEL
+# ============================================================================
+
+class FacilitySubscriptionPayment(BaseModel):
+    """
+    Stores history of subscription payments for a facility.
+    """
+    METHOD_CHOICES = (
+        ('mpesa', 'M-Pesa'),
+        ('card', 'Credit/Debit Card'),
+        ('bank_transfer', 'Bank Transfer'),
+    )
+    STATUS_CHOICES = (
+        ('completed', 'Completed'),
+        ('pending', 'Pending'),
+        ('failed', 'Failed'),
+    )
+
+    facility = models.ForeignKey(
+        Facility,
+        on_delete=models.CASCADE,
+        related_name='subscription_payments'
+    )
+    package = models.CharField(max_length=50)
+    billing_cycle = models.CharField(max_length=20, default='monthly')
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    payment_method = models.CharField(max_length=50, choices=METHOD_CHOICES, default='mpesa')
+    phone_number = models.CharField(max_length=20, blank=True)
+    transaction_reference = models.CharField(max_length=100, unique=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='completed')
+    notes = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.facility.name} - {self.package} ({self.amount}) [{self.transaction_reference}]"
         # When fetching facilities, show newest first
 
 

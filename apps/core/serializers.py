@@ -4,7 +4,7 @@ from rest_framework import serializers
 from django.contrib.auth import authenticate
 from django.contrib.auth.hashers import make_password
 from django.contrib.auth.password_validation import validate_password
-from .models import User, Facility, Department, FacilityOnboarding, FacilityRole, ALL_MODULE_PERMISSIONS
+from .models import User, Facility, Department, FacilityOnboarding, FacilityRole, FacilitySubscriptionPayment, ALL_MODULE_PERMISSIONS
 import re
 
 
@@ -129,8 +129,8 @@ class FacilityDetailSerializer(serializers.ModelSerializer):
             'id', 'name', 'facility_type', 'registration_number',
             'email', 'phone', 'address', 'city', 'country',
             'logo', 'description', 'website',
-            'subscription_active', 'subscription_start_date',
-            'subscription_end_date', 'onboarding_completed',
+            'subscription_active', 'subscription_package', 'subscription_billing_cycle',
+            'subscription_start_date', 'subscription_end_date', 'onboarding_completed',
             'total_patients', 'total_staff',
             'departments_count', 'users_count',
             'created_at', 'updated_at'
@@ -178,21 +178,64 @@ class FacilityWriteSerializer(serializers.ModelSerializer):
             'id', 'name', 'facility_type', 'registration_number',
             'email', 'phone', 'address', 'city', 'country',
             'logo', 'description', 'website',
-            'subscription_active', 'subscription_start_date',
-            'subscription_end_date'
+            'subscription_active', 'subscription_package', 'subscription_billing_cycle',
+            'subscription_start_date', 'subscription_end_date'
         ]
         read_only_fields = ['id']
         extra_kwargs = {
-            'name': {
-                'validators': []
-            },
-            'email': {
-                'validators': []
-            },
-            'registration_number': {
-                'validators': []
-            },
+            'name': {'validators': []},
+            'email': {'validators': []},
+            'registration_number': {'validators': []},
         }
+
+
+class FacilityUpdateSerializer(serializers.ModelSerializer):
+    """
+    Serializer for Facility Admins updating their facility details.
+    """
+    class Meta:
+        model = Facility
+        fields = [
+            'id', 'name', 'facility_type', 'registration_number',
+            'email', 'phone', 'address', 'city', 'country',
+            'logo', 'description', 'website'
+        ]
+        read_only_fields = ['id', 'registration_number']
+
+    def validate_name(self, value):
+        instance = getattr(self, 'instance', None)
+        if Facility.objects.filter(name__iexact=value).exclude(pk=instance.pk if instance else None).exists():
+            raise serializers.ValidationError('A facility with this name already exists.')
+        return value
+
+    def validate_email(self, value):
+        instance = getattr(self, 'instance', None)
+        if Facility.objects.filter(email__iexact=value).exclude(pk=instance.pk if instance else None).exists():
+            raise serializers.ValidationError('A facility with this email already exists.')
+        return value
+
+
+class FacilitySubscriptionPaymentSerializer(serializers.ModelSerializer):
+    facility_name = serializers.CharField(source='facility.name', read_only=True)
+
+    class Meta:
+        model = FacilitySubscriptionPayment
+        fields = [
+            'id', 'facility', 'facility_name', 'package', 'billing_cycle',
+            'amount', 'payment_method', 'phone_number',
+            'transaction_reference', 'status', 'notes', 'created_at'
+        ]
+        read_only_fields = ['id', 'facility', 'created_at']
+
+
+class SubscribePackageSerializer(serializers.Serializer):
+    package = serializers.ChoiceField(choices=Facility.PACKAGE_CHOICES)
+    billing_cycle = serializers.ChoiceField(choices=Facility.CYCLE_CHOICES, default='monthly')
+    payment_method = serializers.ChoiceField(choices=FacilitySubscriptionPayment.METHOD_CHOICES, default='mpesa')
+    phone_number = serializers.CharField(max_length=20, required=False, allow_blank=True)
+    card_number = serializers.CharField(max_length=30, required=False, allow_blank=True)
+    card_expiry = serializers.CharField(max_length=10, required=False, allow_blank=True)
+    card_cvv = serializers.CharField(max_length=10, required=False, allow_blank=True)
 
 
 # ============================================================================

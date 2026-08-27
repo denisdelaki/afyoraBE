@@ -3,7 +3,14 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.utils.html import format_html
-from .models import User, Facility, Department, FacilityOnboarding, AuditLog
+from .models import User, Facility, Department, FacilityOnboarding, AuditLog, FacilitySubscriptionPayment
+
+@admin.register(FacilitySubscriptionPayment)
+class FacilitySubscriptionPaymentAdmin(admin.ModelAdmin):
+    list_display = ('facility', 'package', 'billing_cycle', 'amount', 'payment_method', 'transaction_reference', 'status', 'created_at')
+    list_filter = ('package', 'billing_cycle', 'payment_method', 'status', 'created_at')
+    search_fields = ('facility__name', 'transaction_reference', 'phone_number')
+    readonly_fields = ('created_at', 'updated_at')
 
 
 # ============================================================================

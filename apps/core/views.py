@@ -10,6 +10,8 @@ from rest_framework.authtoken.models import Token
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.serializers import TokenRefreshSerializer
+from datetime import timedelta
+import uuid
 from django.utils import timezone
 from django.db import transaction
 from django.conf import settings
@@ -17,12 +19,13 @@ from django.contrib.auth.tokens import default_token_generator
 from django.core.mail import EmailMultiAlternatives
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
-from .models import User, Facility, Department, FacilityOnboarding, AuditLog, EmailOTP, FacilityRole, ALL_MODULE_PERMISSIONS
+from .models import User, Facility, Department, FacilityOnboarding, AuditLog, EmailOTP, FacilityRole, FacilitySubscriptionPayment, ALL_MODULE_PERMISSIONS
 from .utils import generate_and_send_otp
 from .serializers import (
     SignupSerializer, LoginSerializer, SignupResponseSerializer,
     LoginResponseSerializer, UserSerializer, UserDetailSerializer,
     FacilityListSerializer, FacilityDetailSerializer, FacilityWriteSerializer,
+    FacilityUpdateSerializer, FacilitySubscriptionPaymentSerializer, SubscribePackageSerializer,
     DepartmentSerializer, VerifyOTPSerializer, ResendOTPSerializer,
     PasswordResetRequestSerializer, PasswordResetConfirmSerializer,
     FacilityRoleSerializer,
@@ -954,38 +957,34 @@ class UserViewSet(viewsets.ModelViewSet):
 
 class FacilityViewSet(viewsets.ModelViewSet):
     """
-    Facility viewset for listing, retrieving, and creating facilities.
-    
-    Endpoints:
-    - POST /api/facilities/ → Create facility (admin only)
-    - GET /api/facilities/ → List facilities (admin only)
-    - GET /api/facilities/{id}/ → Get facility details
+    Facility viewset for managing facility details, profile updates, and subscriptions.
     """
-    
     permission_classes = [IsAuthenticated]
-    http_method_names = ['get', 'post', 'head', 'options']
-    filterset_fields = ['facility_type', 'subscription_active']
+    http_method_names = ['get', 'post', 'put', 'patch', 'head', 'options']
+    filterset_fields = ['facility_type', 'subscription_active', 'subscription_package']
     search_fields = ['name', 'city', 'email']
     ordering = ['-created_at']
+
+    # Pricing map in KES (Kenya Shillings)
+    PACKAGE_PRICING = {
+        'basic': {'monthly': 2999.00, 'yearly': 28790.00},
+        'professional': {'monthly': 5999.00, 'yearly': 57590.00},
+        'enterprise': {'monthly': 12999.00, 'yearly': 124790.00},
+    }
     
     def get_queryset(self):
-        """
-        Admin sees all facilities.
-        Regular users only see their own facility.
-        """
         user = self.request.user
-        
         if user.role == 'admin':
             return Facility.objects.all()
-        
         if user.facility:
             return Facility.objects.filter(id=user.facility.id)
-        
         return Facility.objects.none()
     
     def get_serializer_class(self):
         if self.action == 'create':
             return FacilityWriteSerializer
+        if self.action in ['update', 'partial_update']:
+            return FacilityUpdateSerializer
         if self.action == 'retrieve':
             return FacilityDetailSerializer
         return FacilityListSerializer
@@ -1007,7 +1006,6 @@ class FacilityViewSet(viewsets.ModelViewSet):
         )
 
     def perform_create(self, serializer):
-        """Only system admins can create facilities directly."""
         if self.request.user.role != 'admin':
             raise PermissionDenied('Only administrators can create facilities.')
 
@@ -1022,6 +1020,137 @@ class FacilityViewSet(viewsets.ModelViewSet):
                 object_id=str(facility.id),
                 description=f'Facility created: {facility.name}'
             )
+
+    def perform_update(self, serializer):
+        facility = self.get_object()
+        user = self.request.user
+        if user.role != 'admin' and (not user.facility or user.facility.id != facility.id):
+            raise PermissionDenied('You do not have permission to update this facility profile.')
+        
+        with transaction.atomic():
+            updated_facility = serializer.save()
+            AuditLog.objects.create(
+                facility=updated_facility,
+                user=user,
+                action='update',
+                model_name='Facility',
+                object_id=str(updated_facility.id),
+                description=f'Facility profile updated: {updated_facility.name}'
+            )
+
+    @action(detail=False, methods=['get', 'put', 'patch'], url_path='my-facility')
+    def my_facility(self, request):
+        """Shortcut endpoint to fetch or update current user's facility profile."""
+        if not request.user.facility:
+            return Response({'detail': 'User is not associated with any facility.'}, status=status.HTTP_404_NOT_FOUND)
+        
+        facility = request.user.facility
+        if request.method == 'GET':
+            serializer = FacilityDetailSerializer(facility, context={'request': request})
+            return Response(serializer.data)
+        
+        # PUT or PATCH
+        serializer = FacilityUpdateSerializer(
+            facility,
+            data=request.data,
+            partial=(request.method == 'PATCH'),
+            context={'request': request}
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        
+        AuditLog.objects.create(
+            facility=facility,
+            user=request.user,
+            action='update',
+            model_name='Facility',
+            object_id=str(facility.id),
+            description=f'Facility profile updated: {facility.name}'
+        )
+        detail_serializer = FacilityDetailSerializer(facility, context={'request': request})
+        return Response(detail_serializer.data)
+
+    @action(detail=True, methods=['post'], url_path='subscribe')
+    def subscribe(self, request, pk=None):
+        """Process package upgrade and subscription payment."""
+        facility = self.get_object()
+        user = request.user
+
+        if user.role != 'admin' and (not user.facility or user.facility.id != facility.id):
+            raise PermissionDenied('You can only upgrade subscriptions for your own facility.')
+
+        serializer = SubscribePackageSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        package = data['package']
+        billing_cycle = data.get('billing_cycle', 'monthly')
+        payment_method = data.get('payment_method', 'mpesa')
+        phone_number = data.get('phone_number', '')
+
+        # Calculate pricing
+        pricing = self.PACKAGE_PRICING.get(package, {'monthly': 15000.00, 'yearly': 144000.00})
+        amount = pricing.get(billing_cycle, pricing['monthly'])
+
+        # Generate unique transaction reference
+        txn_ref = f"SUB-PAY-{uuid.uuid4().hex[:8].upper()}"
+
+        with transaction.atomic():
+            # Record payment history
+            payment = FacilitySubscriptionPayment.objects.create(
+                facility=facility,
+                package=package,
+                billing_cycle=billing_cycle,
+                amount=amount,
+                payment_method=payment_method,
+                phone_number=phone_number,
+                transaction_reference=txn_ref,
+                status='completed',
+                notes=f"Subscription upgrade to {package.title()} ({billing_cycle})"
+            )
+
+            # Update facility subscription state
+            today = timezone.now().date()
+            days_to_add = 365 if billing_cycle == 'yearly' else 30
+            new_end_date = today + timedelta(days=days_to_add)
+
+            facility.subscription_package = package
+            facility.subscription_billing_cycle = billing_cycle
+            facility.subscription_active = True
+            facility.subscription_start_date = today
+            facility.subscription_end_date = new_end_date
+            facility.save()
+
+            AuditLog.objects.create(
+                facility=facility,
+                user=user,
+                action='update',
+                model_name='Facility',
+                object_id=str(facility.id),
+                description=f'Upgraded subscription package to {package} ({billing_cycle}), Txn: {txn_ref}'
+            )
+
+        facility_data = FacilityDetailSerializer(facility, context={'request': request}).data
+        payment_data = FacilitySubscriptionPaymentSerializer(payment).data
+
+        return Response({
+            'message': f'Successfully subscribed to {package.title()} plan!',
+            'facility': facility_data,
+            'payment': payment_data
+        }, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['get'], url_path='subscription-history')
+    def subscription_history(self, request, pk=None):
+        """Retrieve list of subscription payments for this facility."""
+        facility = self.get_object()
+        user = request.user
+
+        if user.role != 'admin' and (not user.facility or user.facility.id != facility.id):
+            raise PermissionDenied('You can only view subscription history for your own facility.')
+
+        payments = facility.subscription_payments.all()
+        serializer = FacilitySubscriptionPaymentSerializer(payments, many=True)
+        return Response(serializer.data)
 
 
 # ============================================================================
