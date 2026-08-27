@@ -65,7 +65,7 @@ class PasswordResetRequestView(APIView):
             reset_base_url = getattr(
                 settings,
                 'PASSWORD_RESET_URL',
-                'http://localhost:4200/reset-password',
+                'https://afyorahms.vercel.app/reset-password',
             ).rstrip('/')
             reset_url = f'{reset_base_url}?uid={uid}&token={token}'
 
