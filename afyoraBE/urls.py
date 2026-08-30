@@ -19,6 +19,10 @@ from django.http import JsonResponse
 from django.urls import include, path
 
 
+def health_check(request):
+    return JsonResponse({'status': 'healthy', 'service': 'AfyoraHMS Backend'}, status=200)
+
+
 def home(request):
     return JsonResponse(
         {
@@ -30,6 +34,8 @@ def home(request):
 
 urlpatterns = [
     path('', home, name='home'),
+    path('health/', health_check, name='health_check'),
+    path('api/health/', health_check, name='api_health_check'),
     path('admin/', admin.site.urls),
     path('api/', include('core.urls')),
     path('api/patients', include('patients.urls')),

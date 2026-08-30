@@ -3,6 +3,7 @@ services:
     name: afyoraBE
     env: python
     plan: free
+    healthCheckPath: /health/
     buildCommand: pip install -r requirements.txt
     # Free web services do not support pre-deploy commands. Running migrations
     # before Gunicorn starts ensures a newly selected primary has its schema.
