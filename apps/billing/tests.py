@@ -17,6 +17,13 @@ class BillingAPITests(TestCase):
             email="billing@nairobihealth.com",
             phone="+254700112233"
         )
+        self.user = User.objects.create_user(
+            username="billing_admin",
+            email="billing@nairobihealth.com",
+            facility=self.facility,
+            role="accountant"
+        )
+        self.client.force_authenticate(user=self.user)
         self.patient = Patient.objects.create(
             facility=self.facility,
             patient_id="PAT0001",
@@ -25,6 +32,7 @@ class BillingAPITests(TestCase):
             gender="female",
             phone="+254711998877"
         )
+
 
     def test_create_invoice_with_string_patient_id(self):
         payload = {
@@ -255,3 +263,86 @@ class BillingAPITests(TestCase):
         )
         self.assertEqual(create_resp.status_code, status.HTTP_201_CREATED)
         self.assertEqual(float(create_resp.data['data']['total']), 4000.0)
+
+    def test_mpesa_config_get_and_post(self):
+        # GET default config
+        get_res = self.client.get(f"/api/billing/mpesa-config/?facilityId={self.facility.id}")
+        self.assertEqual(get_res.status_code, status.HTTP_200_OK)
+        self.assertTrue(get_res.data['success'])
+        self.assertEqual(get_res.data['data']['shortcode'], '')
+
+        # UPDATE config
+        update_payload = {
+            "shortcode": "600000",
+            "environment": "sandbox",
+            "transaction_type": "CustomerBuyGoodsOnline",
+            "passkey": "new_test_passkey_123"
+        }
+        post_res = self.client.post(
+            f"/api/billing/mpesa-config/?facilityId={self.facility.id}",
+            update_payload,
+            format='json'
+        )
+        self.assertEqual(post_res.status_code, status.HTTP_200_OK)
+        self.assertTrue(post_res.data['success'])
+        self.assertEqual(post_res.data['data']['shortcode'], "600000")
+        self.assertEqual(post_res.data['data']['transaction_type'], "CustomerBuyGoodsOnline")
+
+
+    def test_mpesa_callback_and_query(self):
+        from .models import MpesaTransaction
+        invoice = Invoice.objects.create(
+            facility=self.facility,
+            patient=self.patient,
+            status="Pending"
+        )
+        checkout_req_id = "ws_CO_30082026_TEST_12345"
+        merchant_req_id = "12345-67890"
+
+        txn = MpesaTransaction.objects.create(
+            invoice=invoice,
+            facility=self.facility,
+            phone_number="254712345678",
+            amount=1500.00,
+            checkout_request_id=checkout_req_id,
+            merchant_request_id=merchant_req_id,
+            status="Pending"
+        )
+
+        # Simulate M-Pesa Callback from Safaricom
+        callback_payload = {
+            "Body": {
+                "stkCallback": {
+                    "MerchantRequestID": merchant_req_id,
+                    "CheckoutRequestID": checkout_req_id,
+                    "ResultCode": 0,
+                    "ResultDesc": "The service request is processed successfully.",
+                    "CallbackMetadata": {
+                        "Item": [
+                            {"Name": "Amount", "Value": 1500.00},
+                            {"Name": "MpesaReceiptNumber", "Value": "QGR99887766"},
+                            {"Name": "TransactionDate", "Value": 20260830163000},
+                            {"Name": "PhoneNumber", "Value": 254712345678}
+                        ]
+                    }
+                }
+            }
+        }
+
+        cb_res = self.client.post("/api/billing/mpesa/callback/", callback_payload, format='json')
+        self.assertEqual(cb_res.status_code, status.HTTP_200_OK)
+
+        txn.refresh_from_db()
+        self.assertEqual(txn.status, "Completed")
+        self.assertEqual(txn.mpesa_receipt_number, "QGR99887766")
+
+        # Verify payment was automatically recorded & invoice marked paid
+        invoice.refresh_from_db()
+        self.assertEqual(Payment.objects.filter(invoice=invoice, method="M-Pesa").count(), 1)
+
+        # Test STK Status Query Endpoint
+        query_res = self.client.get(f"/api/billing/mpesa/query/?checkoutRequestId={checkout_req_id}")
+        self.assertEqual(query_res.status_code, status.HTTP_200_OK)
+        self.assertTrue(query_res.data['success'])
+        self.assertEqual(query_res.data['data']['status'], "Completed")
+

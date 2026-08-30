@@ -102,3 +102,76 @@ class Payment(models.Model):
                     pass
             self.id = f'PMT{next_num:04d}'
         super().save(*args, **kwargs)
+
+
+class MpesaConfig(models.Model):
+    ENVIRONMENT_CHOICES = [
+        ('sandbox', 'Sandbox'),
+        ('production', 'Production'),
+    ]
+    TRANSACTION_TYPE_CHOICES = [
+        ('CustomerPayBillOnline', 'Paybill'),
+        ('CustomerBuyGoodsOnline', 'Till Number'),
+    ]
+
+
+    facility = models.OneToOneField(
+        Facility, on_delete=models.CASCADE, related_name='mpesa_config'
+    )
+    shortcode = models.CharField(max_length=20, default='')
+    passkey = models.CharField(
+        max_length=255,
+        blank=True,
+        default='bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919'
+    )
+    consumer_key = models.CharField(max_length=255, blank=True, default='')
+    consumer_secret = models.CharField(max_length=255, blank=True, default='')
+    environment = models.CharField(max_length=20, choices=ENVIRONMENT_CHOICES, default='sandbox')
+    transaction_type = models.CharField(
+        max_length=50, choices=TRANSACTION_TYPE_CHOICES, default='CustomerPayBillOnline'
+    )
+    account_reference_prefix = models.CharField(max_length=50, default='AfyoraHMS')
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"M-Pesa Config for {self.facility.name} ({self.shortcode})"
+
+
+class MpesaTransaction(models.Model):
+    STATUS_CHOICES = [
+        ('Pending', 'Pending'),
+        ('Completed', 'Completed'),
+        ('Failed', 'Failed'),
+        ('Cancelled', 'Cancelled'),
+    ]
+
+    invoice = models.ForeignKey(
+        Invoice, on_delete=models.CASCADE, related_name='mpesa_transactions', null=True, blank=True
+    )
+    subscription_payment = models.ForeignKey(
+        'core.FacilitySubscriptionPayment',
+        on_delete=models.CASCADE,
+        related_name='mpesa_transactions',
+        null=True,
+        blank=True
+    )
+    facility = models.ForeignKey(
+        Facility, on_delete=models.CASCADE, related_name='mpesa_transactions', null=True, blank=True
+    )
+
+    phone_number = models.CharField(max_length=20)
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    checkout_request_id = models.CharField(max_length=100, unique=True)
+    merchant_request_id = models.CharField(max_length=100)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Pending')
+    result_code = models.IntegerField(null=True, blank=True)
+    result_desc = models.TextField(blank=True, null=True)
+    mpesa_receipt_number = models.CharField(max_length=100, blank=True, null=True)
+    transaction_date = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"M-Pesa Txn {self.checkout_request_id} - {self.phone_number} ({self.status})"

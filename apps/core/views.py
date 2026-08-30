@@ -1095,8 +1095,11 @@ class FacilityViewSet(viewsets.ModelViewSet):
         # Generate unique transaction reference
         txn_ref = f"SUB-PAY-{uuid.uuid4().hex[:8].upper()}"
 
-        with transaction.atomic():
-            # Record payment history
+        if payment_method == 'mpesa':
+            from billing.mpesa_service import send_stk_push, format_phone_number
+            from billing.models import MpesaTransaction
+
+            # Create payment with status='pending'
             payment = FacilitySubscriptionPayment.objects.create(
                 facility=facility,
                 package=package,
@@ -1105,39 +1108,102 @@ class FacilityViewSet(viewsets.ModelViewSet):
                 payment_method=payment_method,
                 phone_number=phone_number,
                 transaction_reference=txn_ref,
-                status='completed',
-                notes=f"Subscription upgrade to {package.title()} ({billing_cycle})"
+                status='pending',
+                notes=f"Subscription upgrade to {package.title()} ({billing_cycle}) pending M-Pesa PIN authorization"
             )
 
-            # Update facility subscription state
-            today = timezone.now().date()
-            days_to_add = 365 if billing_cycle == 'yearly' else 30
-            new_end_date = today + timedelta(days=days_to_add)
+            # Build callback URL
+            callback_url = request.build_absolute_uri('/api/billing/mpesa/callback/')
+            if 'localhost' in callback_url or '127.0.0.1' in callback_url:
+                callback_url = "https://afyorahms.com/api/billing/mpesa/callback/"
 
-            facility.subscription_package = package
-            facility.subscription_billing_cycle = billing_cycle
-            facility.subscription_active = True
-            facility.subscription_start_date = today
-            facility.subscription_end_date = new_end_date
-            facility.save()
-
-            AuditLog.objects.create(
-                facility=facility,
-                user=user,
-                action='update',
-                model_name='Facility',
-                object_id=str(facility.id),
-                description=f'Upgraded subscription package to {package} ({billing_cycle}), Txn: {txn_ref}'
+            res = send_stk_push(
+                config=None,
+                phone_number=phone_number,
+                amount=float(amount),
+                account_ref=txn_ref,
+                callback_url=callback_url
             )
 
-        facility_data = FacilityDetailSerializer(facility, context={'request': request}).data
-        payment_data = FacilitySubscriptionPaymentSerializer(payment).data
+            if res.get('success'):
+                checkout_req_id = res['checkout_request_id']
+                merchant_req_id = res['merchant_request_id']
 
-        return Response({
-            'message': f'Successfully subscribed to {package.title()} plan!',
-            'facility': facility_data,
-            'payment': payment_data
-        }, status=status.HTTP_200_OK)
+                # Track MpesaTransaction
+                MpesaTransaction.objects.create(
+                    subscription_payment=payment,
+                    facility=facility,
+                    phone_number=format_phone_number(phone_number),
+                    amount=amount,
+                    checkout_request_id=checkout_req_id,
+                    merchant_request_id=merchant_req_id,
+                    status='Pending'
+                )
+
+                payment_data = FacilitySubscriptionPaymentSerializer(payment).data
+                facility_data = FacilityDetailSerializer(facility, context={'request': request}).data
+
+                return Response({
+                    'message': 'STK Push sent successfully.',
+                    'checkoutRequestId': checkout_req_id,
+                    'merchantRequestId': merchant_req_id,
+                    'facility': facility_data,
+                    'payment': payment_data
+                }, status=status.HTTP_200_OK)
+            else:
+                payment.status = 'failed'
+                payment.notes = f"STK push failed to trigger: {res.get('error')}"
+                payment.save()
+                return Response({
+                    'success': False,
+                    'error': res.get('error') or 'Failed to initiate M-Pesa STK Push.'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+        else:
+            with transaction.atomic():
+                # Record payment history
+                payment = FacilitySubscriptionPayment.objects.create(
+                    facility=facility,
+                    package=package,
+                    billing_cycle=billing_cycle,
+                    amount=amount,
+                    payment_method=payment_method,
+                    phone_number=phone_number,
+                    transaction_reference=txn_ref,
+                    status='completed',
+                    notes=f"Subscription upgrade to {package.title()} ({billing_cycle})"
+                )
+
+                # Update facility subscription state
+                today = timezone.now().date()
+                days_to_add = 365 if billing_cycle == 'yearly' else 30
+                new_end_date = today + timedelta(days=days_to_add)
+
+                facility.subscription_package = package
+                facility.subscription_billing_cycle = billing_cycle
+                facility.subscription_active = True
+                facility.subscription_start_date = today
+                facility.subscription_end_date = new_end_date
+                facility.save()
+
+                AuditLog.objects.create(
+                    facility=facility,
+                    user=user,
+                    action='update',
+                    model_name='Facility',
+                    object_id=str(facility.id),
+                    description=f'Upgraded subscription package to {package} ({billing_cycle}), Txn: {txn_ref}'
+                )
+
+            facility_data = FacilityDetailSerializer(facility, context={'request': request}).data
+            payment_data = FacilitySubscriptionPaymentSerializer(payment).data
+
+            return Response({
+                'message': f'Successfully subscribed to {package.title()} plan!',
+                'facility': facility_data,
+                'payment': payment_data
+            }, status=status.HTTP_200_OK)
+
 
     @action(detail=True, methods=['get'], url_path='subscription-history')
     def subscription_history(self, request, pk=None):

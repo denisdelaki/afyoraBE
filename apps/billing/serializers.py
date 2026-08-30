@@ -189,3 +189,40 @@ class PaymentSerializer(serializers.ModelSerializer):
 class RecordPaymentSerializer(serializers.Serializer):
     amount = serializers.DecimalField(max_digits=10, decimal_places=2)
     method = serializers.CharField(max_length=50)
+
+
+class MpesaConfigSerializer(serializers.ModelSerializer):
+    facilityId = serializers.IntegerField(source='facility.id', read_only=True)
+
+    class Meta:
+        from .models import MpesaConfig
+        model = MpesaConfig
+        fields = [
+            'id', 'facilityId', 'shortcode', 'passkey', 'consumer_key',
+            'consumer_secret', 'environment', 'transaction_type',
+            'account_reference_prefix', 'is_active', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'facilityId', 'created_at', 'updated_at']
+        extra_kwargs = {
+            'passkey': {'write_only': False},
+            'consumer_secret': {'write_only': False},
+        }
+
+
+class MpesaSTKPushRequestSerializer(serializers.Serializer):
+    invoiceId = serializers.CharField(max_length=50)
+    phoneNumber = serializers.CharField(max_length=20)
+    amount = serializers.DecimalField(max_digits=10, decimal_places=2, required=False)
+
+
+class MpesaTransactionSerializer(serializers.ModelSerializer):
+    invoiceId = serializers.CharField(source='invoice.id', read_only=True)
+
+    class Meta:
+        from .models import MpesaTransaction
+        model = MpesaTransaction
+        fields = [
+            'id', 'invoiceId', 'phone_number', 'amount', 'checkout_request_id',
+            'merchant_request_id', 'status', 'result_code', 'result_desc',
+            'mpesa_receipt_number', 'transaction_date', 'created_at'
+        ]
