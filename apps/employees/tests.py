@@ -5,7 +5,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from core.models import Facility
+from core.models import Facility, FacilityRole
 from .models import Employee
 
 
@@ -125,3 +125,46 @@ class EmployeeApiTests(APITestCase):
 		self.assertEqual(response.status_code, status.HTTP_200_OK)
 		send_credentials.assert_called_once()
 		self.assertEqual(send_credentials.call_args.kwargs['email'], 'alice@f1.com')
+
+	def test_create_employee_with_facility_role_id_and_name(self):
+		self._authenticate(self.user_one)
+		custom_role = FacilityRole.objects.create(
+			facility=self.facility_one,
+			name='Senior Pharmacist',
+			description='Head of Pharmacy',
+		)
+
+		# 1. Test passing facility role ID as string "1" (or custom_role.id)
+		payload_by_id = {
+			'name': 'Pharmacist Staff One',
+			'role': str(custom_role.id),
+			'email': 'pharm1@f1.com',
+			'phone': '+254700002222',
+			'joinDate': '2024-03-01',
+		}
+		with patch('employees.serializers.send_employee_credentials'):
+			with self.captureOnCommitCallbacks(execute=True):
+				response = self.client.post('/api/employees/', payload_by_id, format='json')
+
+		self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+		emp_by_id = Employee.objects.get(name='Pharmacist Staff One')
+		self.assertEqual(emp_by_id.custom_role, custom_role)
+		self.assertEqual(emp_by_id.role, 'Senior Pharmacist')
+
+		# 2. Test passing facility role name "Senior Pharmacist"
+		payload_by_name = {
+			'name': 'Pharmacist Staff Two',
+			'role': 'Senior Pharmacist',
+			'email': 'pharm2@f1.com',
+			'phone': '+254700003333',
+			'joinDate': '2024-03-01',
+		}
+		with patch('employees.serializers.send_employee_credentials'):
+			with self.captureOnCommitCallbacks(execute=True):
+				response = self.client.post('/api/employees/', payload_by_name, format='json')
+
+		self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+		emp_by_name = Employee.objects.get(name='Pharmacist Staff Two')
+		self.assertEqual(emp_by_name.custom_role, custom_role)
+		self.assertEqual(emp_by_name.role, 'Senior Pharmacist')
+

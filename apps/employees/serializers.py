@@ -57,7 +57,7 @@ class EmployeeSerializer(serializers.ModelSerializer):
         super().__init__(*args, **kwargs)
 
         facility = self._get_request_facility()
-        role_choices = sorted(self._get_allowed_roles())
+        role_choices = sorted(self._get_allowed_roles(facility))
         department_choices = sorted(self._get_allowed_departments(facility))
 
         # Attach metadata used by browsable API and schema clients.
@@ -88,35 +88,85 @@ class EmployeeSerializer(serializers.ModelSerializer):
             ).values_list('name', flat=True)
         )
 
-    def _get_allowed_roles(self):
-        # Use configured system roles directly so creation is not blocked by
-        # which roles currently exist as users in a facility.
-        return {value for value, _ in User.ROLE_CHOICES if value != 'admin'}
+    def _get_allowed_roles(self, facility=None):
+        system_roles = {value for value, _ in User.ROLE_CHOICES if value != 'admin'}
+        if facility is None:
+            return system_roles
 
-    def _normalize_role(self, role_value):
+        facility_roles = set(
+            FacilityRole.objects.filter(facility=facility).values_list('name', flat=True)
+        )
+        return system_roles | facility_roles
+
+    def _normalize_role(self, facility, role_value, attrs):
         if role_value is None:
             return role_value
 
-        role_value = str(role_value).strip()
-        if not role_value:
-            return role_value
+        role_value_str = str(role_value).strip()
+        if not role_value_str:
+            return role_value_str
 
-        allowed_roles = self._get_allowed_roles()
-        if role_value in allowed_roles:
-            return role_value
+        # 1. Check if role_value matches a FacilityRole ID or Name for this facility
+        facility_role = None
+        if facility is not None:
+            if role_value_str.isdigit():
+                facility_role = FacilityRole.objects.filter(
+                    facility=facility, id=int(role_value_str)
+                ).first()
+            if facility_role is None:
+                facility_role = FacilityRole.objects.filter(
+                    facility=facility, name__iexact=role_value_str
+                ).first()
 
-        normalized_input = role_value.lower().replace('-', '_').replace(' ', '_')
-        if normalized_input in allowed_roles:
+        if facility_role is not None:
+            if not attrs.get('custom_role'):
+                attrs['custom_role'] = facility_role
+
+            norm_name = facility_role.name.lower().replace('-', '_').replace(' ', '_')
+            system_roles = {value for value, _ in User.ROLE_CHOICES if value != 'admin'}
+            if norm_name in system_roles:
+                return norm_name
+            return facility_role.name
+
+        # 2. Check if role_value matches standard system role choices directly
+        system_roles = {value for value, _ in User.ROLE_CHOICES if value != 'admin'}
+        if role_value_str in system_roles:
+            if facility is not None and not attrs.get('custom_role'):
+                matching_fr = FacilityRole.objects.filter(
+                    facility=facility, name__iexact=role_value_str
+                ).first()
+                if matching_fr:
+                    attrs['custom_role'] = matching_fr
+            return role_value_str
+
+        # 3. Check normalized string against system roles (e.g. "Facility Admin" -> "facility_admin")
+        normalized_input = role_value_str.lower().replace('-', '_').replace(' ', '_')
+        if normalized_input in system_roles:
+            if facility is not None and not attrs.get('custom_role'):
+                matching_fr = FacilityRole.objects.filter(
+                    facility=facility, name__iexact=role_value_str
+                ).first()
+                if matching_fr:
+                    attrs['custom_role'] = matching_fr
             return normalized_input
 
+        # 4. Check label matching for system roles
         label_to_value = {
             label.lower().replace('-', '_').replace(' ', '_'): value
             for value, label in User.ROLE_CHOICES
             if value != 'admin'
         }
         if normalized_input in label_to_value:
-            return label_to_value[normalized_input]
+            matched_val = label_to_value[normalized_input]
+            if facility is not None and not attrs.get('custom_role'):
+                matching_fr = FacilityRole.objects.filter(
+                    facility=facility, name__iexact=role_value_str
+                ).first()
+                if matching_fr:
+                    attrs['custom_role'] = matching_fr
+            return matched_val
 
+        allowed_roles = self._get_allowed_roles(facility)
         raise serializers.ValidationError(
             (
                 f'"{role_value}" is not a valid role. '
@@ -173,7 +223,12 @@ class EmployeeSerializer(serializers.ModelSerializer):
 
         role = attrs.get('role', getattr(self.instance, 'role', ''))
         if role:
-            attrs['role'] = self._normalize_role(role)
+            attrs['role'] = self._normalize_role(facility, role, attrs)
+        elif attrs.get('custom_role'):
+            cr = attrs['custom_role']
+            norm_name = cr.name.lower().replace('-', '_').replace(' ', '_')
+            system_roles = {value for value, _ in User.ROLE_CHOICES if value != 'admin'}
+            attrs['role'] = norm_name if norm_name in system_roles else cr.name
 
         if 'department' in attrs:
             attrs['department'] = self._normalize_department(
