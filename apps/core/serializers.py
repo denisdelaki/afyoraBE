@@ -485,8 +485,13 @@ class SignupSerializer(serializers.Serializer):
     def validate_password(self, value):
         """
         Validate password strength.
-        Should have uppercase, lowercase, number, special char.
+        Must be at least 10 characters, have uppercase, lowercase, number, special char.
         """
+        if len(value) < 10:
+            raise serializers.ValidationError(
+                "Password must be at least 10 characters long."
+            )
+
         if not re.search(r'[A-Z]', value):
             raise serializers.ValidationError(
                 "Password must contain at least one uppercase letter."
@@ -501,9 +506,14 @@ class SignupSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 "Password must contain at least one number."
             )
+
+        if not re.search(r'[!@#$%^&*()_+\-=\[\]{};:\'",.<>/?\\|~`]', value):
+            raise serializers.ValidationError(
+                "Password must contain at least one special character."
+            )
         
         # Common weak passwords
-        weak_passwords = ['password', '123456', 'qwerty', 'admin']
+        weak_passwords = ['password', '123456', 'qwerty', 'admin', 'password123!']
         if value.lower() in weak_passwords:
             raise serializers.ValidationError(
                 "This password is too common. Please choose a stronger one."
@@ -834,6 +844,19 @@ class PasswordResetConfirmSerializer(serializers.Serializer):
 
     new_password = serializers.CharField(write_only=True, trim_whitespace=False)
     confirm_password = serializers.CharField(write_only=True, trim_whitespace=False)
+
+    def validate_new_password(self, value):
+        if len(value) < 10:
+            raise serializers.ValidationError("Password must be at least 10 characters long.")
+        if not re.search(r'[A-Z]', value):
+            raise serializers.ValidationError("Password must contain at least one uppercase letter.")
+        if not re.search(r'[a-z]', value):
+            raise serializers.ValidationError("Password must contain at least one lowercase letter.")
+        if not re.search(r'[0-9]', value):
+            raise serializers.ValidationError("Password must contain at least one number.")
+        if not re.search(r'[!@#$%^&*()_+\-=\[\]{};:\'",.<>/?\\|~`]', value):
+            raise serializers.ValidationError("Password must contain at least one special character.")
+        return value
 
     def validate(self, data):
         if data['new_password'] != data['confirm_password']:

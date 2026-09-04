@@ -63,6 +63,9 @@ for host in required_hosts:
     if host and host not in ALLOWED_HOSTS:
         ALLOWED_HOSTS.append(host)
 
+# Trust HTTPS proxy headers (essential for Render, Vercel, Heroku, Nginx)
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
 
 # Application definition
 
@@ -78,6 +81,7 @@ INSTALLED_APPS = [
     'rest_framework',                # Django REST Framework
     'corsheaders',                   # Allow cross-origin requests from Angular
     'rest_framework_simplejwt',      # JWT authentication
+    'rest_framework_simplejwt.token_blacklist', # JWT token blacklisting
     'django_filters',                # Advanced filtering
     'django_extensions',             # Shell plus, other utilities
     
@@ -281,6 +285,17 @@ REST_FRAMEWORK = {
     'DATETIME_FORMAT': '%Y-%m-%dT%H:%M:%S.%fZ',
     'DATE_FORMAT': '%Y-%m-%d',
     
+    # Rate limiting / Throttling
+    'DEFAULT_THROTTLE_CLASSES': (
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+    ),
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '30/minute',
+        'user': '600/minute',
+        'auth': '5/minute',
+    },
+
     # Strict mode
     'STRICT_RENDERING': True,
 }
@@ -294,8 +309,8 @@ REST_FRAMEWORK = {
 from datetime import timedelta
  
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(hours=1),
-    # Access token expires after 1 hour
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=30),
+    # Access token expires after 30 minutes
     # User needs to refresh to get new token
     
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
@@ -305,7 +320,8 @@ SIMPLE_JWT = {
     'ROTATE_REFRESH_TOKENS': True,
     # Each refresh returns a new refresh token (more secure)
     
-    'BLACKLIST_AFTER_ROTATION': False,
+    'BLACKLIST_AFTER_ROTATION': True,
+    # Rotated and logged-out tokens are blacklisted immediately
     
     'ALGORITHM': 'HS256',
     'SIGNING_KEY': SECRET_KEY,
@@ -415,23 +431,27 @@ LOGGING = {
 }
  
 # ============================================================================
-# SECURITY SETTINGS (PRODUCTION)
+# SECURITY & COOKIE SETTINGS
 # ============================================================================
-# Uncomment these in production
- 
+
+# Session & CSRF Security Cookies
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SECURE = config('SESSION_COOKIE_SECURE', default=not DEBUG, cast=bool)
+SESSION_COOKIE_SAMESITE = 'Lax'
+
+CSRF_COOKIE_HTTPONLY = True
+CSRF_COOKIE_SECURE = config('CSRF_COOKIE_SECURE', default=not DEBUG, cast=bool)
+CSRF_COOKIE_SAMESITE = 'Lax'
+
+# Defense-in-depth HTTP Security Headers
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_BROWSER_XSS_FILTER = True
+X_FRAME_OPTIONS = 'DENY'
+SECURE_REFERRER_POLICY = 'same-origin'
+
 if not DEBUG:
     # HTTPS only
-    SECURE_SSL_REDIRECT = True
-    SESSION_COOKIE_SECURE = True
-    CSRF_COOKIE_SECURE = True
-    
-    # Security headers
-    SECURE_BROWSER_XSS_FILTER = True
-    SECURE_CONTENT_SECURITY_POLICY = {
-        'default-src': ("'self'",),
-        'script-src': ("'self'", "cdn.example.com"),
-        'style-src': ("'self'", "fonts.googleapis.com"),
-    }
+    SECURE_SSL_REDIRECT = config('SECURE_SSL_REDIRECT', default=True, cast=bool)
     
     # HTTPS Strict Transport Security
     SECURE_HSTS_SECONDS = 31536000

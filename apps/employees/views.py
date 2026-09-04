@@ -5,6 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from core.models import Department, User
+from core.utils import check_module_permission
 from .models import Employee
 from .serializers import EmployeeSerializer
 from .utils import generate_temp_password, send_employee_credentials
@@ -19,6 +20,11 @@ class EmployeeViewSet(viewsets.ModelViewSet):
 	filterset_fields = ['role', 'department', 'status', 'shift']
 	search_fields = ['name', 'email', 'employee_id']
 	ordering = ['-created_at']
+
+	def initial(self, request, *args, **kwargs):
+		super().initial(request, *args, **kwargs)
+		if request.user and request.user.is_authenticated:
+			check_module_permission(request.user, 'employees')
 
 	def get_queryset(self):
 		user = self.request.user

@@ -20,7 +20,7 @@ from django.core.mail import EmailMultiAlternatives
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from .models import User, Facility, Department, FacilityOnboarding, AuditLog, EmailOTP, FacilityRole, FacilitySubscriptionPayment, ALL_MODULE_PERMISSIONS
-from .utils import generate_and_send_otp
+from .utils import generate_and_send_otp, AuthRateThrottle
 from .serializers import (
     SignupSerializer, LoginSerializer, SignupResponseSerializer,
     LoginResponseSerializer, UserSerializer, UserDetailSerializer,
@@ -53,6 +53,7 @@ class PasswordResetRequestView(APIView):
     """Send a one-time password-reset link to a user's registered email."""
 
     permission_classes = [AllowAny]
+    throttle_classes = [AuthRateThrottle]
 
     def post(self, request):
         serializer = PasswordResetRequestSerializer(data=request.data)
@@ -96,6 +97,7 @@ class PasswordResetConfirmView(APIView):
     """Set a new password after a valid password-reset link is presented."""
 
     permission_classes = [AllowAny]
+    throttle_classes = [AuthRateThrottle]
 
     def post(self, request, uid, token):
         try:
@@ -172,6 +174,7 @@ class SignupView(APIView):
     
     # AllowAny means anyone can access this (no login required)
     permission_classes = [AllowAny]
+    throttle_classes = [AuthRateThrottle]
 
     @staticmethod
     def _normalize_signup_payload(payload):
@@ -416,7 +419,7 @@ class LogoutView(APIView):
     POST /api/auth/logout/
 
     Stateless logout endpoint for frontend coordination and audit logging.
-    Clients should clear access/refresh tokens after this call.
+    Blacklists the provided refresh token and creates an audit log entry.
     """
 
     permission_classes = [IsAuthenticated]
@@ -425,11 +428,24 @@ class LogoutView(APIView):
         user = request.user
         audit_facility = get_audit_facility_for_user(user)
 
+        # Blacklist refresh token if provided
+        refresh_token = (
+            request.data.get('refresh')
+            or request.data.get('refresh_token')
+            or request.data.get('refreshToken')
+        )
+        if refresh_token:
+            try:
+                token = RefreshToken(refresh_token)
+                token.blacklist()
+            except Exception:
+                pass  # Gracefully ignore if token is already expired or blacklisted
+
         if audit_facility is not None:
             AuditLog.objects.create(
                 facility=audit_facility,
                 user=user,
-                action='login',
+                action='logout',
                 model_name='User',
                 object_id=str(user.id),
                 description=f'{user.get_full_name()} logged out',
@@ -625,6 +641,7 @@ class VerifyOTPView(APIView):
     Verify 6-digit OTP code sent to user email.
     """
     permission_classes = [AllowAny]
+    throttle_classes = [AuthRateThrottle]
 
     def post(self, request):
         serializer = VerifyOTPSerializer(data=request.data)
@@ -703,6 +720,7 @@ class ResendOTPView(APIView):
     Triggers resend of 6-digit OTP code to user email.
     """
     permission_classes = [AllowAny]
+    throttle_classes = [AuthRateThrottle]
 
     def post(self, request):
         serializer = ResendOTPSerializer(data=request.data)

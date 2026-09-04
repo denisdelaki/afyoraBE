@@ -493,9 +493,10 @@ class ReportDataAPIView(APIView):
 
 
 class SavedReportListCreateAPIView(APIView):
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        check_module_permission(request.user, 'reports')
         raw_facility_id = (
             request.query_params.get('facilityId')
             or request.query_params.get('facility_id')
@@ -517,6 +518,7 @@ class SavedReportListCreateAPIView(APIView):
         )
 
     def post(self, request):
+        check_module_permission(request.user, 'reports')
         serializer = SavedReportSerializer(data=request.data)
         if serializer.is_valid():
             report = serializer.save()
@@ -539,7 +541,7 @@ class SavedReportListCreateAPIView(APIView):
 
 
 class SavedReportDetailAPIView(APIView):
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def get_object(self, pk, facility_id=None):
         try:
@@ -551,6 +553,7 @@ class SavedReportDetailAPIView(APIView):
             return None
 
     def get(self, request, pk):
+        check_module_permission(request.user, 'reports')
         raw_facility_id = (
             request.query_params.get('facilityId')
             or request.query_params.get('facility_id')

@@ -1,5 +1,5 @@
-# apps/core/utils.py
-
+import re
+import html
 import secrets
 import string
 import threading
@@ -10,9 +10,50 @@ import requests
 from django.conf import settings
 from django.utils import timezone
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.throttling import SimpleRateThrottle
 from .models import EmailOTP
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# RATE LIMITING THROTTLE FOR AUTH ENDPOINTS
+# ============================================================================
+
+class AuthRateThrottle(SimpleRateThrottle):
+    """Rate limiter for authentication endpoints (5 requests per minute per IP)."""
+    scope = 'auth'
+
+    def get_cache_key(self, request, view):
+        if request.user and request.user.is_authenticated:
+            ident = request.user.pk
+        else:
+            ident = self.get_ident(request)
+        return self.cache_format % {'scope': self.scope, 'ident': ident}
+
+
+# ============================================================================
+# INPUT DATA SANITIZATION (XSS & INJECTION PROTECTION)
+# ============================================================================
+
+def sanitize_input(val: str) -> str:
+    """
+    Sanitize string input to prevent XSS script injection.
+    Strips script tags, event handlers, and dangerous protocols while preserving plain text.
+    """
+    if not isinstance(val, str):
+        return val
+
+    cleaned = val.strip()
+    # Strip <script>...</script> tags and contents
+    cleaned = re.sub(r'<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>', '', cleaned, flags=re.IGNORECASE)
+    # Strip inline HTML tags
+    cleaned = re.sub(r'<[^>]+>', '', cleaned)
+    # Strip javascript: URIs
+    cleaned = re.sub(r'javascript:', '', cleaned, flags=re.IGNORECASE)
+    # Strip inline event handlers (onerror=, onload=, onclick=)
+    cleaned = re.sub(r'on\w+\s*=', '', cleaned, flags=re.IGNORECASE)
+    return html.escape(cleaned, quote=False)
 
 
 # ============================================================================
@@ -54,10 +95,10 @@ def check_module_permission(user, module_key: str) -> None:
         'doctor':        {'patients', 'appointments', 'laboratory', 'ehr', 'visit_queue'},
         'nurse':         {'patients', 'appointments', 'ehr', 'visit_queue'},
         'receptionist':  {'patients', 'appointments', 'visit_queue'},
-        'pharmacist':    {'pharmacy', 'inventory'},
-        'lab_technician':{'laboratory', 'patients'},
-        'radiologist':   {'radiology', 'patients'},
-        'accountant':    {'billing', 'reports'},
+        'pharmacist':    {'pharmacy', 'inventory', 'visit_queue'},
+        'lab_technician':{'laboratory', 'patients', 'visit_queue'},
+        'radiologist':   {'radiology', 'patients', 'visit_queue'},
+        'accountant':    {'billing', 'reports', 'visit_queue'},
         'hr':            {'employees', 'departments'},
         'manager':       {
             'patients', 'appointments', 'laboratory', 'pharmacy',

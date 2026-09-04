@@ -214,9 +214,10 @@ class PatientPharmacyChargesView(APIView):
     """
     GET /api/billing/patient-pharmacy-charges/?patientId=PAT0001&facilityId=9/
     """
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        check_module_permission(request.user, 'billing')
         from .utils import get_patient_pharmacy_charges
         patient_param, facility_id = _resolve_patient_from_request(request)
         if not patient_param:
@@ -244,9 +245,10 @@ class PatientLabChargesView(APIView):
     GET /api/billing/patient-lab-charges/?patientId=PAT0001&facilityId=9/
     Returns itemized lab/test charges for a patient to pre-populate billing services.
     """
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        check_module_permission(request.user, 'billing')
         from .utils import get_patient_lab_charges
         patient_param, facility_id = _resolve_patient_from_request(request)
         if not patient_param:
@@ -274,9 +276,10 @@ class PatientRadiologyChargesView(APIView):
     GET /api/billing/patient-radiology-charges/?patientId=PAT0001&facilityId=9/
     Returns itemized radiology/imaging charges for a patient to pre-populate billing services.
     """
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        check_module_permission(request.user, 'billing')
         from .utils import get_patient_radiology_charges
         patient_param, facility_id = _resolve_patient_from_request(request)
         if not patient_param:
@@ -300,9 +303,14 @@ class PatientRadiologyChargesView(APIView):
 
 
 class PaymentViewSet(viewsets.ModelViewSet):
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
     queryset = Payment.objects.select_related('invoice', 'invoice__patient', 'invoice__facility')
     serializer_class = PaymentSerializer
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        if request.user and request.user.is_authenticated:
+            check_module_permission(request.user, 'billing')
 
     def get_facility_id(self):
         facility_val = (
@@ -343,7 +351,7 @@ class MpesaConfigView(APIView):
     GET /api/billing/mpesa-config/?facilityId=1
     POST /api/billing/mpesa-config/?facilityId=1
     """
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def _get_facility(self, request):
         facility_val = (
@@ -360,6 +368,7 @@ class MpesaConfigView(APIView):
         return Facility.objects.first()
 
     def get(self, request):
+        check_module_permission(request.user, 'billing')
         from .models import MpesaConfig
         from .serializers import MpesaConfigSerializer
         from .mpesa_service import get_facility_mpesa_config
@@ -373,6 +382,7 @@ class MpesaConfigView(APIView):
         return Response({'success': True, 'data': serializer.data}, status=status.HTTP_200_OK)
 
     def post(self, request):
+        check_module_permission(request.user, 'billing')
         from .models import MpesaConfig
         from .serializers import MpesaConfigSerializer
         from .mpesa_service import get_facility_mpesa_config
@@ -401,9 +411,10 @@ class MpesaSTKPushView(APIView):
     POST /api/billing/mpesa/stk-push/?facilityId=1
     Payload: { "invoiceId": "INV0001", "phoneNumber": "0712345678", "amount": 500 }
     """
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def post(self, request):
+        check_module_permission(request.user, 'billing')
         from .models import Invoice, MpesaTransaction
         from .serializers import MpesaSTKPushRequestSerializer, MpesaTransactionSerializer
         from .mpesa_service import get_facility_mpesa_config, send_stk_push, format_phone_number
@@ -561,9 +572,10 @@ class MpesaSTKQueryView(APIView):
     GET /api/billing/mpesa/query/?checkoutRequestId=ws_CO_...
     Polled by the frontend to check if user entered PIN or completed payment.
     """
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        check_module_permission(request.user, 'billing')
         from .models import MpesaTransaction, Payment
         from .serializers import MpesaTransactionSerializer
         from .mpesa_service import get_facility_mpesa_config, query_stk_status_from_daraja
