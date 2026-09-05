@@ -20,7 +20,7 @@ class PatientViewSet(viewsets.ModelViewSet):
 	def initial(self, request, *args, **kwargs):
 		super().initial(request, *args, **kwargs)
 		if request.user and request.user.is_authenticated:
-			check_module_permission(request.user, self.MODULE_KEY)
+			check_module_permission(request.user, self.MODULE_KEY, request=request)
 	serializer_class = PatientSerializer
 	lookup_field = 'patient_id'
 	http_method_names = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options']
@@ -215,7 +215,7 @@ class OutpatientTicketViewSet(viewsets.ModelViewSet):
 	def initial(self, request, *args, **kwargs):
 		super().initial(request, *args, **kwargs)
 		if request.user and request.user.is_authenticated:
-			check_module_permission(request.user, self.MODULE_KEY)
+			check_module_permission(request.user, self.MODULE_KEY, request=request)
 	"""A small, explicit queue for moving an outpatient through a facility."""
 
 	permission_classes = [IsAuthenticated]
@@ -369,7 +369,7 @@ class EhrRecordViewSet(viewsets.ModelViewSet):
 	def initial(self, request, *args, **kwargs):
 		super().initial(request, *args, **kwargs)
 		if request.user and request.user.is_authenticated:
-			check_module_permission(request.user, self.MODULE_KEY)
+			check_module_permission(request.user, self.MODULE_KEY, request=request)
 	serializer_class = EhrRecordSerializer
 	lookup_url_kwarg = 'ehr_id'
 	http_method_names = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options']

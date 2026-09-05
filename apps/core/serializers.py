@@ -62,7 +62,7 @@ class FacilityRoleSerializer(serializers.ModelSerializer):
         return value
 
     def validate_permissions(self, value):
-        """Ensure permissions dict only contains valid module keys."""
+        """Ensure permissions dict only contains valid module keys and valid action values (boolean or CRUD dict)."""
         if not isinstance(value, dict):
             raise serializers.ValidationError('Permissions must be a JSON object.')
         invalid_keys = set(value.keys()) - set(ALL_MODULE_PERMISSIONS)
@@ -71,11 +71,25 @@ class FacilityRoleSerializer(serializers.ModelSerializer):
                 f'Invalid permission keys: {sorted(invalid_keys)}. '
                 f'Valid keys are: {ALL_MODULE_PERMISSIONS}'
             )
-        # Ensure all values are booleans
+        valid_actions = {'create', 'read', 'update', 'delete'}
         for key, val in value.items():
-            if not isinstance(val, bool):
+            if isinstance(val, bool):
+                continue
+            elif isinstance(val, dict):
+                invalid_actions = set(val.keys()) - valid_actions
+                if invalid_actions:
+                    raise serializers.ValidationError(
+                        f'Permission actions for "{key}" contain invalid keys: {sorted(invalid_actions)}. '
+                        f'Valid actions are: {sorted(valid_actions)}'
+                    )
+                for act, act_val in val.items():
+                    if not isinstance(act_val, bool):
+                        raise serializers.ValidationError(
+                            f'Action value "{act}" in module "{key}" must be a boolean.'
+                        )
+            else:
                 raise serializers.ValidationError(
-                    f'Permission value for "{key}" must be true or false.'
+                    f'Permission value for "{key}" must be a boolean or an object with create/read/update/delete booleans.'
                 )
         return value
 
@@ -269,37 +283,56 @@ class UserSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at']
 
     def get_permissions(self, obj):
-        """
-        Return the effective permissions for this user.
-        - facility_admin / admin: all modules = True
-        - custom_role present: use its permissions map
-        - fallback: use static role defaults
-        """
-        static_role = getattr(obj, 'role', 'staff')
+        """Return effective permissions for this user."""
+        return _get_effective_user_permissions(obj)
 
-        if static_role in ('admin', 'facility_admin'):
-            return {key: True for key in ALL_MODULE_PERMISSIONS}
 
-        if obj.custom_role_id:
-            perms = getattr(obj.custom_role, 'permissions', {}) or {}
-            # Fill any missing keys with False
-            return {key: bool(perms.get(key, False)) for key in ALL_MODULE_PERMISSIONS}
+def _get_effective_user_permissions(obj):
+    """
+    Return effective module permissions map for a user.
+    Handles both legacy boolean maps and granular CRUD maps.
+    """
+    static_role = getattr(obj, 'role', 'staff')
 
-        # Static fallback defaults
-        STATIC_DEFAULTS = {
-            'doctor':        {'patients', 'appointments', 'laboratory', 'ehr', 'visit_queue'},
-            'nurse':         {'patients', 'appointments', 'ehr', 'visit_queue'},
-            'receptionist':  {'patients', 'appointments', 'visit_queue'},
-            'pharmacist':    {'pharmacy', 'inventory'},
-            'lab_technician':{'laboratory', 'patients'},
-            'radiologist':   {'radiology', 'patients'},
-            'accountant':    {'billing', 'reports'},
-            'hr':            {'employees', 'departments'},
-            'manager':       set(ALL_MODULE_PERMISSIONS) - {'roles'},
-            'staff':         set(),
-        }
-        allowed = STATIC_DEFAULTS.get(static_role, set())
-        return {key: (key in allowed) for key in ALL_MODULE_PERMISSIONS}
+    full_perm = {'create': True, 'read': True, 'update': True, 'delete': True}
+    no_perm = {'create': False, 'read': False, 'update': False, 'delete': False}
+
+    if static_role in ('admin', 'facility_admin'):
+        return {key: full_perm for key in ALL_MODULE_PERMISSIONS}
+
+    if getattr(obj, 'custom_role_id', None):
+        perms = getattr(obj.custom_role, 'permissions', {}) or {}
+        result = {}
+        for key in ALL_MODULE_PERMISSIONS:
+            val = perms.get(key, False)
+            if isinstance(val, dict):
+                result[key] = {
+                    'create': bool(val.get('create', False)),
+                    'read': bool(val.get('read', False)),
+                    'update': bool(val.get('update', False)),
+                    'delete': bool(val.get('delete', False)),
+                }
+            elif bool(val):
+                result[key] = full_perm
+            else:
+                result[key] = no_perm
+        return result
+
+    # Static fallback defaults
+    STATIC_DEFAULTS = {
+        'doctor':        {'patients', 'appointments', 'laboratory', 'ehr', 'visit_queue'},
+        'nurse':         {'patients', 'appointments', 'ehr', 'visit_queue'},
+        'receptionist':  {'patients', 'appointments', 'visit_queue'},
+        'pharmacist':    {'pharmacy', 'inventory', 'visit_queue'},
+        'lab_technician':{'laboratory', 'patients', 'visit_queue'},
+        'radiologist':   {'radiology', 'patients', 'visit_queue'},
+        'accountant':    {'billing', 'reports', 'visit_queue'},
+        'hr':            {'employees', 'departments'},
+        'manager':       set(ALL_MODULE_PERMISSIONS) - {'roles'},
+        'staff':         set(),
+    }
+    allowed = STATIC_DEFAULTS.get(static_role, set())
+    return {key: (full_perm if key in allowed else no_perm) for key in ALL_MODULE_PERMISSIONS}
 
 
 class UserDetailSerializer(serializers.ModelSerializer):
@@ -337,26 +370,7 @@ class UserDetailSerializer(serializers.ModelSerializer):
 
     def get_permissions(self, obj):
         """Mirror of UserSerializer.get_permissions for consistency."""
-        static_role = getattr(obj, 'role', 'staff')
-        if static_role in ('admin', 'facility_admin'):
-            return {key: True for key in ALL_MODULE_PERMISSIONS}
-        if obj.custom_role_id:
-            perms = getattr(obj.custom_role, 'permissions', {}) or {}
-            return {key: bool(perms.get(key, False)) for key in ALL_MODULE_PERMISSIONS}
-        STATIC_DEFAULTS = {
-            'doctor':        {'patients', 'appointments', 'laboratory', 'ehr', 'visit_queue'},
-            'nurse':         {'patients', 'appointments', 'ehr', 'visit_queue'},
-            'receptionist':  {'patients', 'appointments', 'visit_queue'},
-            'pharmacist':    {'pharmacy', 'inventory'},
-            'lab_technician':{'laboratory', 'patients'},
-            'radiologist':   {'radiology', 'patients'},
-            'accountant':    {'billing', 'reports'},
-            'hr':            {'employees', 'departments'},
-            'manager':       set(ALL_MODULE_PERMISSIONS) - {'roles'},
-            'staff':         set(),
-        }
-        allowed = STATIC_DEFAULTS.get(static_role, set())
-        return {key: (key in allowed) for key in ALL_MODULE_PERMISSIONS}
+        return _get_effective_user_permissions(obj)
 
 
 # ============================================================================

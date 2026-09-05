@@ -74,7 +74,7 @@ class ReportDataAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        check_module_permission(request.user, 'reports')
+        check_module_permission(request.user, 'reports', request=request)
         report_type = request.query_params.get('reportType', 'general')
         time_range = request.query_params.get('timeRange', '30days')
         start_date = request.query_params.get('startDate')
@@ -496,7 +496,7 @@ class SavedReportListCreateAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        check_module_permission(request.user, 'reports')
+        check_module_permission(request.user, 'reports', request=request)
         raw_facility_id = (
             request.query_params.get('facilityId')
             or request.query_params.get('facility_id')
@@ -518,7 +518,7 @@ class SavedReportListCreateAPIView(APIView):
         )
 
     def post(self, request):
-        check_module_permission(request.user, 'reports')
+        check_module_permission(request.user, 'reports', request=request)
         serializer = SavedReportSerializer(data=request.data)
         if serializer.is_valid():
             report = serializer.save()
@@ -553,7 +553,7 @@ class SavedReportDetailAPIView(APIView):
             return None
 
     def get(self, request, pk):
-        check_module_permission(request.user, 'reports')
+        check_module_permission(request.user, 'reports', request=request)
         raw_facility_id = (
             request.query_params.get('facilityId')
             or request.query_params.get('facility_id')

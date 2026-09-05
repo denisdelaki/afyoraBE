@@ -20,7 +20,7 @@ class FacilityScopedPharmacyViewSet(viewsets.ModelViewSet):
 	def initial(self, request, *args, **kwargs):
 		super().initial(request, *args, **kwargs)
 		if request.user and request.user.is_authenticated:
-			check_module_permission(request.user, self.MODULE_KEY)
+			check_module_permission(request.user, self.MODULE_KEY, request=request)
 
 
 	@staticmethod

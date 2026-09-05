@@ -75,7 +75,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)
         if request.user and request.user.is_authenticated:
-            check_module_permission(request.user, 'billing')
+            check_module_permission(request.user, 'billing', request=request)
 
     def get_facility_id(self):
         facility_val = (
@@ -217,7 +217,7 @@ class PatientPharmacyChargesView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        check_module_permission(request.user, 'billing')
+        check_module_permission(request.user, 'billing', request=request)
         from .utils import get_patient_pharmacy_charges
         patient_param, facility_id = _resolve_patient_from_request(request)
         if not patient_param:
@@ -248,7 +248,7 @@ class PatientLabChargesView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        check_module_permission(request.user, 'billing')
+        check_module_permission(request.user, 'billing', request=request)
         from .utils import get_patient_lab_charges
         patient_param, facility_id = _resolve_patient_from_request(request)
         if not patient_param:
@@ -279,7 +279,7 @@ class PatientRadiologyChargesView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        check_module_permission(request.user, 'billing')
+        check_module_permission(request.user, 'billing', request=request)
         from .utils import get_patient_radiology_charges
         patient_param, facility_id = _resolve_patient_from_request(request)
         if not patient_param:
@@ -310,7 +310,7 @@ class PaymentViewSet(viewsets.ModelViewSet):
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)
         if request.user and request.user.is_authenticated:
-            check_module_permission(request.user, 'billing')
+            check_module_permission(request.user, 'billing', request=request)
 
     def get_facility_id(self):
         facility_val = (
@@ -368,7 +368,7 @@ class MpesaConfigView(APIView):
         return Facility.objects.first()
 
     def get(self, request):
-        check_module_permission(request.user, 'billing')
+        check_module_permission(request.user, 'billing', request=request)
         from .models import MpesaConfig
         from .serializers import MpesaConfigSerializer
         from .mpesa_service import get_facility_mpesa_config
@@ -382,7 +382,7 @@ class MpesaConfigView(APIView):
         return Response({'success': True, 'data': serializer.data}, status=status.HTTP_200_OK)
 
     def post(self, request):
-        check_module_permission(request.user, 'billing')
+        check_module_permission(request.user, 'billing', request=request)
         from .models import MpesaConfig
         from .serializers import MpesaConfigSerializer
         from .mpesa_service import get_facility_mpesa_config
@@ -414,7 +414,7 @@ class MpesaSTKPushView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        check_module_permission(request.user, 'billing')
+        check_module_permission(request.user, 'billing', request=request)
         from .models import Invoice, MpesaTransaction
         from .serializers import MpesaSTKPushRequestSerializer, MpesaTransactionSerializer
         from .mpesa_service import get_facility_mpesa_config, send_stk_push, format_phone_number
@@ -575,7 +575,7 @@ class MpesaSTKQueryView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        check_module_permission(request.user, 'billing')
+        check_module_permission(request.user, 'billing', request=request)
         from .models import MpesaTransaction, Payment
         from .serializers import MpesaTransactionSerializer
         from .mpesa_service import get_facility_mpesa_config, query_stk_status_from_daraja

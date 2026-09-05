@@ -60,9 +60,24 @@ def sanitize_input(val: str) -> str:
 # RBAC PERMISSION HELPER
 # ============================================================================
 
-def check_module_permission(user, module_key: str) -> None:
+HTTP_METHOD_ACTION_MAP = {
+    'GET': 'read',
+    'HEAD': 'read',
+    'OPTIONS': 'read',
+    'POST': 'create',
+    'PUT': 'update',
+    'PATCH': 'update',
+    'DELETE': 'delete',
+}
+
+
+def check_module_permission(user, module_key: str, action: str = None, request = None) -> None:
     """
-    Raise PermissionDenied if the user lacks access to the given module.
+    Raise PermissionDenied if the user lacks access to the given module or action.
+
+    Action can be 'create', 'read', 'update', 'delete'.
+    If action is None and request is provided, action is inferred from request.method.
+    If action is still None, it defaults to 'read'.
 
     Logic:
     1. facility_admin and admin always have full access.
@@ -74,6 +89,11 @@ def check_module_permission(user, module_key: str) -> None:
     if not user or not getattr(user, 'is_authenticated', False):
         raise PermissionDenied('Authentication required.')
 
+    if action is None and request is not None and hasattr(request, 'method'):
+        action = HTTP_METHOD_ACTION_MAP.get(request.method.upper(), 'read')
+
+    target_action = (action or 'read').lower()
+
     static_role = getattr(user, 'role', 'staff')
 
     # Admins and facility admins always pass.
@@ -84,11 +104,24 @@ def check_module_permission(user, module_key: str) -> None:
     custom_role = getattr(user, 'custom_role', None)
     if custom_role is not None:
         perms = getattr(custom_role, 'permissions', {}) or {}
-        if perms.get(module_key, False):
+        module_perm = perms.get(module_key)
+
+        if module_perm is True:
+            # Boolean True grants full CRUD access
             return
-        raise PermissionDenied(
-            f'Your role "{custom_role.name}" does not have access to the {module_key} module.'
-        )
+
+        if isinstance(module_perm, dict):
+            # Granular CRUD dict check
+            if bool(module_perm.get(target_action, False)):
+                return
+            raise PermissionDenied(
+                f'Your role "{custom_role.name}" does not have "{target_action}" permission for the {module_key} module.'
+            )
+
+        if not module_perm:
+            raise PermissionDenied(
+                f'Your role "{custom_role.name}" does not have access to the {module_key} module.'
+            )
 
     # Fallback: static role defaults (mirrors frontend ROLE_PROFILES).
     STATIC_ROLE_PERMISSIONS: dict[str, set] = {

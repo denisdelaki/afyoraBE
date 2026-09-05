@@ -16,7 +16,7 @@ class AppointmentViewSet(viewsets.ModelViewSet):
 	def initial(self, request, *args, **kwargs):
 		super().initial(request, *args, **kwargs)
 		if request.user and request.user.is_authenticated:
-			check_module_permission(request.user, self.MODULE_KEY)
+			check_module_permission(request.user, self.MODULE_KEY, request=request)
 	serializer_class = AppointmentSerializer
 	lookup_field = 'appointment_id'
 	http_method_names = ['get', 'post', 'put', 'patch', 'head', 'options']

@@ -26,8 +26,17 @@ ALL_MODULE_PERMISSIONS = [
 ]
 
 def default_permissions():
-    """Return a permissions dict with all modules disabled by default."""
-    return {key: False for key in ALL_MODULE_PERMISSIONS}
+    """Return a permissions dict with all modules disabled by default with granular CRUD keys."""
+    return {
+        key: {
+            'create': False,
+            'read': False,
+            'update': False,
+            'delete': False,
+        }
+        for key in ALL_MODULE_PERMISSIONS
+    }
+
 
 # ============================================================================
 # ABSTRACT BASE MODEL

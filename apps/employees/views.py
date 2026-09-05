@@ -24,7 +24,7 @@ class EmployeeViewSet(viewsets.ModelViewSet):
 	def initial(self, request, *args, **kwargs):
 		super().initial(request, *args, **kwargs)
 		if request.user and request.user.is_authenticated:
-			check_module_permission(request.user, 'employees')
+			check_module_permission(request.user, 'employees', request=request)
 
 	def get_queryset(self):
 		user = self.request.user

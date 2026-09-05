@@ -30,7 +30,7 @@ class RbacInventoryMixin:
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)
         if request.user and request.user.is_authenticated:
-            check_module_permission(request.user, 'inventory')
+            check_module_permission(request.user, 'inventory', request=request)
 
 class VendorViewSet(RbacInventoryMixin, viewsets.ModelViewSet):
     serializer_class = VendorSerializer
