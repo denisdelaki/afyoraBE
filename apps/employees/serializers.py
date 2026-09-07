@@ -5,7 +5,7 @@ from django.db import transaction
 from rest_framework import serializers
 
 from core.models import Department, User, FacilityRole
-from .models import Employee
+from .models import Employee, EmployeeAttendance
 from .utils import generate_temp_password, send_employee_credentials
 
 logger = logging.getLogger(__name__)
@@ -221,6 +221,17 @@ class EmployeeSerializer(serializers.ModelSerializer):
                 'Your account is not assigned to a facility.'
             )
 
+        email = (attrs.get('email') or '').strip().lower()
+        if email:
+            attrs['email'] = email
+            duplicates = Employee.objects.filter(facility=facility, email__iexact=email)
+            if self.instance is not None:
+                duplicates = duplicates.exclude(pk=self.instance.pk)
+            if duplicates.exists():
+                raise serializers.ValidationError(
+                    {'email': 'An employee with this email already exists in your facility.'}
+                )
+
         role = attrs.get('role', getattr(self.instance, 'role', ''))
         if role:
             attrs['role'] = self._normalize_role(facility, role, attrs)
@@ -284,10 +295,10 @@ class EmployeeSerializer(serializers.ModelSerializer):
 
     def _provision_user_account(self, employee, facility, employee_id):
         """Create a User login account and email credentials to the employee."""
-        email = employee.email.strip()
+        email = employee.email.strip().lower()
 
         # Use email as username; skip if an account already exists for this email.
-        if User.objects.filter(username=email).exists():
+        if User.objects.filter(username__iexact=email).exists():
             logger.warning(
                 "User account already exists for %s — skipping credential email. "
                 "Use the resend-credentials endpoint to issue a new password.",
@@ -337,3 +348,26 @@ class EmployeeSerializer(serializers.ModelSerializer):
 
         transaction.on_commit(_send)
         return user
+
+
+class EmployeeAttendanceSerializer(serializers.ModelSerializer):
+    employee_name = serializers.CharField(source='employee.name', read_only=True)
+    employee_id_number = serializers.CharField(source='employee.employee_id', read_only=True)
+    department = serializers.CharField(source='employee.department', read_only=True)
+
+    class Meta:
+        model = EmployeeAttendance
+        fields = [
+            'id',
+            'employee',
+            'employee_name',
+            'employee_id_number',
+            'department',
+            'date',
+            'clock_in',
+            'clock_out',
+            'status',
+            'hours_worked',
+            'notes',
+        ]
+        read_only_fields = ['id', 'hours_worked', 'status']

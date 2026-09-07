@@ -1,5 +1,7 @@
 from django.db import models
 from core.models import BaseModel, Facility, FacilityRole
+from django.conf import settings
+from django.utils import timezone
 
 
 class Employee(BaseModel):
@@ -54,3 +56,49 @@ class Employee(BaseModel):
 
 	def __str__(self):
 		return f"{self.employee_id} - {self.name}"
+
+class EmployeeAttendance(BaseModel):
+	"""Daily attendance record for an employee."""
+
+	STATUS_CHOICES = (
+		('clocked_in', 'Clocked In'),
+		('clocked_out', 'Clocked Out'),
+		('late', 'Late'),
+		('absent', 'Absent'),
+	)
+
+	facility = models.ForeignKey(
+		Facility,
+		on_delete=models.CASCADE,
+		related_name='employee_attendances'
+	)
+	employee = models.ForeignKey(
+		Employee,
+		on_delete=models.CASCADE,
+		related_name='attendances'
+	)
+	user = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='employee_attendances'
+	)
+	date = models.DateField(default=timezone.now)
+	clock_in = models.DateTimeField()
+	clock_out = models.DateTimeField(null=True, blank=True)
+	status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='clocked_in')
+	hours_worked = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+	notes = models.TextField(blank=True)
+
+	class Meta:
+		ordering = ['-date', '-clock_in']
+		unique_together = ('employee', 'date')
+		indexes = [
+			models.Index(fields=['facility', 'date']),
+			models.Index(fields=['employee', 'date']),
+			models.Index(fields=['status']),
+		]
+
+	def __str__(self):
+		return f"{self.employee.name} - {self.date} ({self.status})"

@@ -490,6 +490,7 @@ class SignupSerializer(serializers.Serializer):
     
     def validate_email(self, value):
         """Check if email is already registered"""
+        value = (value or '').strip().lower()
         if User.objects.filter(email__iexact=value).exists():
             raise serializers.ValidationError(
                 "An account with this email already exists. Try logging in."
@@ -584,12 +585,12 @@ class SignupSerializer(serializers.Serializer):
         
         # STEP 2: Create the Admin User
         # Generate username from email (first part before @)
-        username = email.split('@')[0]
+        username = email.split('@')[0].lower()
         
         # Ensure username is unique
         base_username = username
         counter = 1
-        while User.objects.filter(username=username).exists():
+        while User.objects.filter(username__iexact=username).exists():
             username = f"{base_username}{counter}"
             counter += 1
         
@@ -653,15 +654,19 @@ class LoginSerializer(serializers.Serializer):
         """
         Authenticate user with email and password.
         """
-        email = data.get('email')
+        email = (data.get('email') or '').strip().lower()
         password = data.get('password')
         old_password = data.get('old_password') or password
         new_password = data.get('new_password')
         confirm_password = data.get('confirm_password')
-        
-        try:
-            user = User.objects.get(email=email)
-        except User.DoesNotExist:
+
+        data['email'] = email
+
+        user = User.objects.filter(email__iexact=email).order_by('id').first()
+        if user is None:
+            user = User.objects.filter(username__iexact=email).order_by('id').first()
+
+        if user is None:
             raise serializers.ValidationError(
                 "Invalid email or password."
             )

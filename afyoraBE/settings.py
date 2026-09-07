@@ -217,7 +217,15 @@ def build_database_config():
     return databases
 
 
-DATABASES = build_database_config()
+# Use SQLite for local development for now.  This deliberately does not read
+# DATABASE_URL/SUPABASE_DATABASE_URL, so an existing environment variable
+# cannot switch the project back to PostgreSQL unexpectedly.
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
+    }
+}
 
 AUTH_USER_MODEL = 'core.User'
 

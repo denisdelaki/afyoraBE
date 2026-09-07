@@ -114,7 +114,7 @@ class ReportDataAPIView(APIView):
         pharmacy_data = self.fetch_pharmacy_series(facility_id, start_dt, end_dt)
         inventory_data = self.fetch_inventory_data(facility_id, department)
         laboratory_data = self.fetch_laboratory_series(facility_id, start_dt, end_dt)
-        employee_data = self.fetch_employee_series(facility_id)
+        employee_data = self.fetch_employee_series(facility_id, start_dt, end_dt)
         revenue_data = self.fetch_revenue_series(facility_id, start_dt, end_dt)
         top_medications = self.fetch_top_medications(facility_id)
         employee_performance = self.fetch_employee_performance(facility_id)
@@ -299,9 +299,11 @@ class ReportDataAPIView(APIView):
             )
         return res
 
-    def fetch_employee_series(self, facility_id):
+    def fetch_employee_series(self, facility_id, start_dt, end_dt):
         if not Employee:
             return []
+
+        from employees.models import EmployeeAttendance
 
         qs = Employee.objects.all()
         if facility_id:
@@ -311,18 +313,57 @@ class ReportDataAPIView(APIView):
         if not active_count:
             return []
 
+        att_qs = EmployeeAttendance.objects.all()
+        if facility_id:
+            att_qs = att_qs.filter(facility_id=facility_id)
+        if start_dt:
+            att_qs = att_qs.filter(date__gte=start_dt)
+        if end_dt:
+            att_qs = att_qs.filter(date__lte=end_dt)
+
+        daily = (
+            att_qs.values('date')
+            .annotate(
+                present=Count('id', filter=Q(status__in=['clocked_in', 'clocked_out', 'late'])),
+                absent=Count('id', filter=Q(status='absent')),
+            )
+            .order_by('date')
+        )
+
+        daily_dict = {}
+        for d in daily:
+            daily_dict[d['date']] = {
+                'attendance': round((d['present'] / active_count) * 100) if active_count else 0,
+                'overtime': 0,
+                'leaves': d['absent'],
+            }
+
         today = datetime.now().date()
         res = []
-        for i in range(7):
-            day_str = str(today - timedelta(days=6 - i))
-            res.append(
-                {
+        s_dt = start_dt or (today - timedelta(days=6))
+        e_dt = end_dt or today
+        
+        delta = (e_dt - s_dt).days
+        if delta <= 30:
+            for i in range(delta + 1):
+                day_val = s_dt + timedelta(days=i)
+                day_str = str(day_val)
+                data = daily_dict.get(day_val, {
+                    'attendance': 0,
+                    'overtime': 0,
+                    'leaves': 0,
+                })
+                res.append({
                     'date': day_str,
-                    'attendance': 98,
-                    'overtime': active_count * 2,
-                    'leaves': qs.filter(status='Inactive').count(),
-                }
-            )
+                    **data
+                })
+        else:
+            for d_date, data in daily_dict.items():
+                res.append({
+                    'date': str(d_date),
+                    **data
+                })
+                
         return res
 
     def fetch_revenue_series(self, facility_id, start_dt, end_dt):

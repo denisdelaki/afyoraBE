@@ -4,10 +4,13 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from django.utils import timezone
+from decimal import Decimal
+
 from core.models import Department, User
 from core.utils import check_module_permission
-from .models import Employee
-from .serializers import EmployeeSerializer
+from .models import Employee, EmployeeAttendance
+from .serializers import EmployeeSerializer, EmployeeAttendanceSerializer
 from .utils import generate_temp_password, send_employee_credentials
 
 
@@ -24,6 +27,15 @@ class EmployeeViewSet(viewsets.ModelViewSet):
 	def initial(self, request, *args, **kwargs):
 		super().initial(request, *args, **kwargs)
 		if request.user and request.user.is_authenticated:
+			# Allow any authenticated employee to manage their personal attendance
+			if self.action in ['clock_in', 'clock_out', 'my_attendance']:
+				return
+			
+			# Require read access for facility-wide attendance log
+			if self.action == 'attendance':
+				check_module_permission(request.user, 'employees', action='read')
+				return
+				
 			check_module_permission(request.user, 'employees', request=request)
 
 	def get_queryset(self):
@@ -109,12 +121,12 @@ class EmployeeViewSet(viewsets.ModelViewSet):
 	def resend_credentials(self, request, pk=None):
 		"""Reset password to a temporary password and resend credentials email."""
 		employee = self.get_object()
-		email = (employee.email or '').strip()
+		email = (employee.email or '').strip().lower()
 
 		if not email:
 			raise ValidationError({'email': 'Employee does not have an email address configured.'})
 
-		user = User.objects.filter(username=email).first()
+		user = User.objects.filter(username__iexact=email).first()
 		temp_password = generate_temp_password()
 
 		if user is None:
@@ -150,3 +162,113 @@ class EmployeeViewSet(viewsets.ModelViewSet):
 		)
 
 		return Response({'detail': f'Credentials successfully sent to {email}.'}, status=status.HTTP_200_OK)
+
+	@action(detail=False, methods=['post'], url_path='clock-in')
+	def clock_in(self, request):
+		"""Clock in the current employee."""
+		user = request.user
+		if not user.employee_id:
+			raise PermissionDenied('No employee record associated with this user.')
+		
+		employee = Employee.objects.filter(employee_id=user.employee_id, facility=user.facility).first()
+		if not employee:
+			raise PermissionDenied('Employee record not found.')
+		
+		today = timezone.localdate()
+		attendance = EmployeeAttendance.objects.filter(employee=employee, date=today).first()
+		
+		if attendance:
+			if attendance.status == 'clocked_in':
+				return Response({'detail': 'Already clocked in for today.'}, status=status.HTTP_400_BAD_REQUEST)
+			else:
+				return Response({'detail': f'Already clocked out or absent today. Current status: {attendance.status}'}, status=status.HTTP_400_BAD_REQUEST)
+
+		attendance = EmployeeAttendance.objects.create(
+			facility=user.facility,
+			employee=employee,
+			user=user,
+			date=today,
+			clock_in=timezone.now(),
+			status='clocked_in'
+		)
+		
+		serializer = EmployeeAttendanceSerializer(attendance)
+		return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+	@action(detail=False, methods=['post'], url_path='clock-out')
+	def clock_out(self, request):
+		"""Clock out the current employee."""
+		user = request.user
+		if not user.employee_id:
+			raise PermissionDenied('No employee record associated with this user.')
+		
+		employee = Employee.objects.filter(employee_id=user.employee_id, facility=user.facility).first()
+		if not employee:
+			raise PermissionDenied('Employee record not found.')
+		
+		today = timezone.localdate()
+		attendance = EmployeeAttendance.objects.filter(employee=employee, date=today, status='clocked_in').first()
+		
+		if not attendance:
+			return Response({'detail': 'No active clock-in session found for today.'}, status=status.HTTP_400_BAD_REQUEST)
+
+		clock_out_time = timezone.now()
+		attendance.clock_out = clock_out_time
+		attendance.status = 'clocked_out'
+		
+		duration = clock_out_time - attendance.clock_in
+		hours = Decimal(duration.total_seconds()) / Decimal(3600)
+		attendance.hours_worked = hours.quantize(Decimal('0.01'))
+		attendance.save()
+		
+		serializer = EmployeeAttendanceSerializer(attendance)
+		return Response(serializer.data, status=status.HTTP_200_OK)
+
+	@action(detail=False, methods=['get'], url_path='my-attendance')
+	def my_attendance(self, request):
+		"""Get personal attendance log."""
+		user = request.user
+		if not user.employee_id:
+			raise PermissionDenied('No employee record associated with this user.')
+		
+		employee = Employee.objects.filter(employee_id=user.employee_id, facility=user.facility).first()
+		if not employee:
+			raise PermissionDenied('Employee record not found.')
+		
+		attendances = EmployeeAttendance.objects.filter(employee=employee).order_by('-date')
+		page = self.paginate_queryset(attendances)
+		if page is not None:
+			serializer = EmployeeAttendanceSerializer(page, many=True)
+			return self.get_paginated_response(serializer.data)
+
+		serializer = EmployeeAttendanceSerializer(attendances, many=True)
+		return Response(serializer.data)
+
+	@action(detail=False, methods=['get'])
+	def attendance(self, request):
+		"""Admin/HR endpoint to query facility-wide attendance records."""
+		user = request.user
+		if not user.facility:
+			raise PermissionDenied('Your account is not assigned to a facility.')
+		
+		# Explicitly restrict to HR, facility_admin, and admin
+		if user.role not in ['hr', 'facility_admin', 'admin']:
+			raise PermissionDenied('Only HR and facility administrators can view the facility-wide attendance log.')
+		
+		attendances = EmployeeAttendance.objects.filter(facility=user.facility).order_by('-date', '-clock_in')
+		
+		date = request.query_params.get('date')
+		if date:
+			attendances = attendances.filter(date=date)
+		
+		employee_id = request.query_params.get('employee_id')
+		if employee_id:
+			attendances = attendances.filter(employee__employee_id=employee_id)
+		
+		page = self.paginate_queryset(attendances)
+		if page is not None:
+			serializer = EmployeeAttendanceSerializer(page, many=True)
+			return self.get_paginated_response(serializer.data)
+
+		serializer = EmployeeAttendanceSerializer(attendances, many=True)
+		return Response(serializer.data)
