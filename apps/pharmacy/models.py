@@ -3,6 +3,26 @@ from django.db import models
 from core.models import BaseModel, Facility
 
 
+class DrugCategory(BaseModel):
+	facility = models.ForeignKey(
+		Facility,
+		on_delete=models.CASCADE,
+		related_name='drug_categories',
+	)
+	name = models.CharField(max_length=255)
+	description = models.TextField(blank=True)
+
+	class Meta:
+		ordering = ['name']
+		unique_together = ('facility', 'name')
+		indexes = [
+			models.Index(fields=['facility', 'name']),
+		]
+
+	def __str__(self):
+		return f"{self.name}"
+
+
 class Drug(BaseModel):
 	facility = models.ForeignKey(
 		Facility,
@@ -11,7 +31,13 @@ class Drug(BaseModel):
 	)
 	drug_id = models.CharField(max_length=20)
 	name = models.CharField(max_length=255)
-	category = models.CharField(max_length=100, blank=True)
+	category = models.ForeignKey(
+		'DrugCategory',
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='drugs'
+	)
 	stock = models.PositiveIntegerField(default=0)
 	min_stock = models.PositiveIntegerField(default=0)
 	price = models.DecimalField(max_digits=12, decimal_places=2, default=0)

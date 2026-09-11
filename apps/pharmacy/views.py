@@ -9,8 +9,8 @@ from django.utils import timezone
 
 from core.models import Facility
 from core.utils import check_module_permission
-from .models import Drug, Prescription
-from .serializers import DrugSerializer, PrescriptionSerializer
+from .models import Drug, DrugCategory, Prescription
+from .serializers import DrugCategorySerializer, DrugSerializer, PrescriptionSerializer
 
 
 class FacilityScopedPharmacyViewSet(viewsets.ModelViewSet):
@@ -68,13 +68,69 @@ class FacilityScopedPharmacyViewSet(viewsets.ModelViewSet):
 		raise PermissionDenied('Your account is not assigned to a facility.')
 
 
+class DrugCategoryViewSet(FacilityScopedPharmacyViewSet):
+	serializer_class = DrugCategorySerializer
+	http_method_names = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options']
+	filterset_fields = []
+	search_fields = ['name', 'description']
+	ordering = ['name']
+
+	def get_queryset(self):
+		facility = self._get_target_facility()
+		if facility is None:
+			raise ValidationError({'facilityId': 'Facility not found.'})
+
+		return DrugCategory.objects.filter(facility=facility, is_active=True)
+
+	def list(self, request, *args, **kwargs):
+		queryset = self.filter_queryset(self.get_queryset())
+		serializer = self.get_serializer(queryset, many=True)
+		return Response(
+			{
+				'items': serializer.data,
+				'count': queryset.count(),
+			},
+			status=status.HTTP_200_OK,
+		)
+
+	def perform_create(self, serializer):
+		facility = self._get_target_facility()
+		if facility is None:
+			raise ValidationError({'facilityId': 'Facility not found.'})
+		serializer.save(facility=facility)
+
+	def perform_update(self, serializer):
+		category = self.get_object()
+		facility = self._get_target_facility()
+
+		if facility is None:
+			raise ValidationError({'facilityId': 'Facility not found.'})
+
+		if category.facility_id != facility.id:
+			raise PermissionDenied('You cannot modify categories from another facility.')
+
+		serializer.save()
+
+	def perform_destroy(self, instance):
+		facility = self._get_target_facility()
+
+		if facility is None:
+			raise ValidationError({'facilityId': 'Facility not found.'})
+
+		if instance.facility_id != facility.id:
+			raise PermissionDenied('You cannot delete categories from another facility.')
+
+		instance.is_active = False
+		instance.save(update_fields=['is_active', 'updated_at'])
+
+
 class DrugViewSet(FacilityScopedPharmacyViewSet):
 	serializer_class = DrugSerializer
 	lookup_field = 'drug_id'
 	lookup_url_kwarg = 'drug_id'
 	http_method_names = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options']
 	filterset_fields = ['category', 'manufacturer']
-	search_fields = ['drug_id', 'name', 'category', 'manufacturer']
+	search_fields = ['drug_id', 'name', 'category__name', 'manufacturer']
 	ordering = ['-created_at']
 
 	def get_queryset(self):
