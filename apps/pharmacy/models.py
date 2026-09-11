@@ -89,3 +89,67 @@ class Prescription(BaseModel):
 
 	def __str__(self):
 		return f"{self.prescription_id} - {self.patient_id}"
+
+
+class DrugPurchaseOrder(BaseModel):
+	STATUS_CHOICES = (
+		('Draft', 'Draft'),
+		('Pending', 'Pending'),
+		('Approved', 'Approved'),
+		('Shipped', 'Shipped'),
+		('Delivered', 'Delivered'),
+		('Cancelled', 'Cancelled'),
+	)
+
+	facility = models.ForeignKey(
+		Facility,
+		on_delete=models.CASCADE,
+		related_name='drug_purchase_orders',
+	)
+	# FK to inventory.Vendor — shared across the platform
+	vendor = models.ForeignKey(
+		'inventory.Vendor',
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='drug_purchase_orders',
+	)
+	po_number = models.CharField(max_length=30, unique=True)
+	status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Draft')
+	total = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+	notes = models.TextField(blank=True)
+	order_date = models.DateField(auto_now_add=True)
+	expected_date = models.DateField(null=True, blank=True)
+	email_sent = models.BooleanField(default=False)
+
+	class Meta:
+		ordering = ['-created_at']
+		indexes = [
+			models.Index(fields=['facility', 'status']),
+			models.Index(fields=['facility', 'order_date']),
+		]
+
+	def __str__(self):
+		return f"{self.po_number} - {self.vendor.name if self.vendor else 'No Vendor'}"
+
+
+class DrugPurchaseOrderItem(BaseModel):
+	purchase_order = models.ForeignKey(
+		DrugPurchaseOrder,
+		on_delete=models.CASCADE,
+		related_name='items',
+	)
+	drug_name = models.CharField(max_length=255)
+	quantity = models.PositiveIntegerField(default=1)
+	unit_price = models.DecimalField(max_digits=12, decimal_places=2)
+	total_price = models.DecimalField(max_digits=14, decimal_places=2)
+
+	class Meta:
+		ordering = ['created_at']
+
+	def save(self, *args, **kwargs):
+		self.total_price = self.quantity * self.unit_price
+		super().save(*args, **kwargs)
+
+	def __str__(self):
+		return f"{self.quantity} x {self.drug_name}"

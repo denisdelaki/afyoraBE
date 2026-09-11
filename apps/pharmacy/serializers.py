@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 from django.utils import timezone
 
-from .models import Drug, DrugCategory, Prescription
+from .models import Drug, DrugCategory, DrugPurchaseOrder, DrugPurchaseOrderItem, Prescription
 
 
 class DrugCategorySerializer(serializers.ModelSerializer):
@@ -192,3 +192,96 @@ class PrescriptionSerializer(serializers.ModelSerializer):
             prescription_id=prescription_id,
             **validated_data,
         )
+
+
+class DrugPurchaseOrderItemSerializer(serializers.ModelSerializer):
+    drugName = serializers.CharField(source='drug_name')
+    unitPrice = serializers.DecimalField(source='unit_price', max_digits=12, decimal_places=2)
+    totalPrice = serializers.DecimalField(source='total_price', max_digits=14, decimal_places=2, read_only=True)
+
+    class Meta:
+        model = DrugPurchaseOrderItem
+        fields = ['id', 'drugName', 'quantity', 'unitPrice', 'totalPrice']
+        read_only_fields = ['id', 'totalPrice']
+
+
+class DrugPurchaseOrderSerializer(serializers.ModelSerializer):
+    items = DrugPurchaseOrderItemSerializer(many=True)
+    vendorId = serializers.PrimaryKeyRelatedField(
+        source='vendor',
+        queryset=__import__('inventory.models', fromlist=['Vendor']).Vendor.objects.all(),
+        required=False,
+        allow_null=True,
+    )
+    vendorName = serializers.CharField(source='vendor.name', read_only=True)
+    vendorEmail = serializers.CharField(source='vendor.email', read_only=True)
+    poNumber = serializers.CharField(source='po_number', read_only=True)
+    orderDate = serializers.DateField(source='order_date', read_only=True)
+    expectedDate = serializers.DateField(source='expected_date', required=False, allow_null=True)
+    emailSent = serializers.BooleanField(source='email_sent', read_only=True)
+    facilityId = serializers.IntegerField(source='facility_id', read_only=True)
+
+    class Meta:
+        model = DrugPurchaseOrder
+        fields = [
+            'id', 'facilityId', 'poNumber', 'vendorId', 'vendorName', 'vendorEmail',
+            'items', 'status', 'total', 'notes',
+            'orderDate', 'expectedDate', 'emailSent',
+            'is_active', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'facilityId', 'poNumber', 'orderDate', 'emailSent', 'is_active', 'created_at', 'updated_at']
+
+    def create(self, validated_data):
+        items_data = validated_data.pop('items', [])
+        facility = validated_data.pop('facility')
+
+        # Auto-generate PO number
+        count = DrugPurchaseOrder.objects.filter(facility=facility).count() + 1
+        po_number = f"DPO-{facility.id}-{count:04d}"
+        while DrugPurchaseOrder.objects.filter(po_number=po_number).exists():
+            count += 1
+            po_number = f"DPO-{facility.id}-{count:04d}"
+
+        po = DrugPurchaseOrder.objects.create(
+            facility=facility,
+            po_number=po_number,
+            **validated_data,
+        )
+
+        total = 0
+        for item_data in items_data:
+            item = DrugPurchaseOrderItem.objects.create(
+                purchase_order=po,
+                drug_name=item_data['drug_name'],
+                quantity=item_data['quantity'],
+                unit_price=item_data['unit_price'],
+                total_price=item_data['quantity'] * item_data['unit_price'],
+            )
+            total += item.total_price
+
+        po.total = total
+        po.save(update_fields=['total', 'updated_at'])
+        return po
+
+    def update(self, instance, validated_data):
+        items_data = validated_data.pop('items', None)
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+
+        if items_data is not None:
+            instance.items.all().delete()
+            total = 0
+            for item_data in items_data:
+                item = DrugPurchaseOrderItem.objects.create(
+                    purchase_order=instance,
+                    drug_name=item_data['drug_name'],
+                    quantity=item_data['quantity'],
+                    unit_price=item_data['unit_price'],
+                    total_price=item_data['quantity'] * item_data['unit_price'],
+                )
+                total += item.total_price
+            instance.total = total
+            instance.save(update_fields=['total', 'updated_at'])
+
+        return instance

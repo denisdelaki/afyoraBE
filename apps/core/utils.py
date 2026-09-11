@@ -1,5 +1,6 @@
 import re
 import html
+import base64
 import secrets
 import string
 import threading
@@ -151,43 +152,93 @@ def check_module_permission(user, module_key: str, action: str = None, request =
     )
 
 
-def send_transactional_email(*, to_email: str, subject: str, text: str, html: str) -> str:
-    """Send an email through Brevo's HTTPS transactional email API."""
-    api_key = settings.BREVO_API_KEY
-    if not api_key:
-        raise RuntimeError('BREVO_API_KEY is not configured.')
+def send_transactional_email(
+    *,
+    to_email: str,
+    subject: str,
+    text: str,
+    html: str = None,
+    cc_emails: list = None,
+    attachments: list = None,
+) -> str:
+    """Send an email through Brevo's HTTPS transactional email API, with optional CCs and attachments."""
+    api_key = getattr(settings, 'BREVO_API_KEY', '').strip()
+    if api_key:
+        sender_name, sender_email = parseaddr(getattr(settings, 'DEFAULT_FROM_EMAIL', '') or 'noreply@afyora.com')
+        if not sender_email:
+            sender_email = 'noreply@afyora.com'
 
-    sender_name, sender_email = parseaddr(settings.DEFAULT_FROM_EMAIL)
-    if not sender_email:
-        raise RuntimeError('DEFAULT_FROM_EMAIL must contain a valid sender email address.')
+        sender = {'email': sender_email}
+        if sender_name:
+            sender['name'] = sender_name
 
-    sender = {'email': sender_email}
-    if sender_name:
-        sender['name'] = sender_name
-
-    response = requests.post(
-        settings.BREVO_API_URL,
-        headers={
-            'api-key': api_key,
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-        },
-        json={
+        payload = {
             'sender': sender,
             'to': [{'email': to_email}],
             'subject': subject,
             'textContent': text,
-            'htmlContent': html,
-        },
-        timeout=settings.BREVO_TIMEOUT,
-    )
-    if not response.ok:
-        logger.error(
-            '[OTP] Brevo API error %s for %s: %s',
-            response.status_code, to_email, response.text,
+        }
+
+        if html:
+            payload['htmlContent'] = html
+
+        if cc_emails:
+            payload['cc'] = [{'email': e} for e in cc_emails if e and '@' in e]
+
+        if attachments:
+            formatted_attachments = []
+            for att in attachments:
+                name = att.get('name', 'attachment')
+                content_bytes = att.get('bytes')
+                if content_bytes:
+                    content_b64 = base64.b64encode(content_bytes).decode('utf-8')
+                else:
+                    content_b64 = att.get('content', '')
+                formatted_attachments.append({
+                    'name': name,
+                    'content': content_b64,
+                })
+            payload['attachment'] = formatted_attachments
+
+        response = requests.post(
+            getattr(settings, 'BREVO_API_URL', 'https://api.brevo.com/v3/smtp/email'),
+            headers={
+                'api-key': api_key,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+            },
+            json=payload,
+            timeout=getattr(settings, 'BREVO_TIMEOUT', 10),
         )
-    response.raise_for_status()
-    return response.json().get('messageId', '')
+        if not response.ok:
+            logger.error(
+                'Brevo API error %s for %s: %s',
+                response.status_code, to_email, response.text,
+            )
+        response.raise_for_status()
+        return response.json().get('messageId', '')
+
+    # Fallback to standard Django EmailMessage if BREVO_API_KEY is not set
+    from django.core.mail import EmailMessage
+    from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@afyora.com')
+    email = EmailMessage(
+        subject=subject,
+        body=text,
+        from_email=from_email,
+        to=[to_email],
+        cc=cc_emails or [],
+    )
+    if attachments:
+        for att in attachments:
+            name = att.get('name', 'attachment')
+            b_data = att.get('bytes')
+            if not b_data and att.get('content'):
+                b_data = base64.b64decode(att['content'])
+            if b_data:
+                email.attach(name, b_data, 'application/pdf')
+
+    email.send(fail_silently=False)
+    return "sent_via_smtp"
 
 def generate_otp_code(length: int = 6) -> str:
     """Generate a cryptographically secure 6-digit OTP code."""
