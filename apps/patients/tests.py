@@ -42,6 +42,7 @@ class PatientAPITests(TestCase):
 	def test_create_patient(self):
 		payload = {
 			'facilityId': self.facility.id,
+			'nationalId': '12345678',
 			'firstName': 'John',
 			'lastName': 'Smith',
 			'gender': 'male',
@@ -56,7 +57,25 @@ class PatientAPITests(TestCase):
 		self.assertEqual(Patient.objects.count(), 1)
 		self.assertTrue(response.data['id'].startswith('PAT'))
 		self.assertEqual(response.data['firstName'], 'John')
+		self.assertEqual(response.data['nationalId'], '12345678')
 		self.assertEqual(response.data['age'], 30)
+
+	def test_create_patient_with_national_id_and_empty_email(self):
+		payload = {
+			'facilityId': self.facility.id,
+			'nationalId': 'BC-998877',
+			'firstName': 'Baby',
+			'lastName': 'Doe',
+			'gender': 'other',
+			'age': 1,
+			'email': '',
+		}
+
+		response = self.client.post('/api/patients/', payload, format='json')
+
+		self.assertEqual(response.status_code, 201)
+		self.assertEqual(response.data['nationalId'], 'BC-998877')
+		self.assertEqual(response.data['email'], '')
 
 	def test_create_patient_without_trailing_slash(self):
 		payload = {

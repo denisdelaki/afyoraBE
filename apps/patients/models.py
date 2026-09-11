@@ -36,6 +36,7 @@ class Patient(BaseModel):
 		related_name='patients',
 	)
 	patient_id = models.CharField(max_length=20)
+	national_id_or_birth_certificate = models.CharField(max_length=50, blank=True)
 	first_name = models.CharField(max_length=150)
 	last_name = models.CharField(max_length=150)
 	gender = models.CharField(max_length=20, choices=GENDER_CHOICES, blank=True)
@@ -65,6 +66,7 @@ class Patient(BaseModel):
 		unique_together = ('facility', 'patient_id')
 		indexes = [
 			models.Index(fields=['facility', 'patient_id']),
+			models.Index(fields=['facility', 'national_id_or_birth_certificate']),
 			models.Index(fields=['facility', 'first_name']),
 			models.Index(fields=['facility', 'last_name']),
 			models.Index(fields=['facility', 'phone']),

@@ -26,8 +26,21 @@ class PrescriptionItemSerializer(serializers.Serializer):
 class PatientSerializer(serializers.ModelSerializer):
     id = serializers.CharField(source='patient_id', read_only=True)
     facilityId = serializers.IntegerField(source='facility_id')
+    nationalId = serializers.CharField(
+        source='national_id_or_birth_certificate',
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        default='',
+    )
     firstName = serializers.CharField(source='first_name')
     lastName = serializers.CharField(source='last_name')
+    email = serializers.EmailField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        default='',
+    )
     age = serializers.IntegerField(required=False, allow_null=True, min_value=0)
     dateOfBirth = serializers.DateField(source='date_of_birth', required=False, allow_null=True)
     maritalStatus = serializers.CharField(source='marital_status', required=False, allow_blank=True)
@@ -48,6 +61,7 @@ class PatientSerializer(serializers.ModelSerializer):
         fields = [
             'id',
             'facilityId',
+            'nationalId',
             'firstName',
             'lastName',
             'gender',

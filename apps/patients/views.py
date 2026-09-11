@@ -25,7 +25,14 @@ class PatientViewSet(viewsets.ModelViewSet):
 	lookup_field = 'patient_id'
 	http_method_names = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options']
 	filterset_fields = ['gender', 'marital_status', 'blood_group', 'is_active']
-	search_fields = ['patient_id', 'first_name', 'last_name', 'phone', 'email']
+	search_fields = [
+		'patient_id',
+		'national_id_or_birth_certificate',
+		'first_name',
+		'last_name',
+		'phone',
+		'email',
+	]
 	ordering = ['-created_at']
 
 	@staticmethod
