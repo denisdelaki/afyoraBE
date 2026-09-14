@@ -176,6 +176,53 @@ class BillingAPITests(TestCase):
         self.assertEqual(create_resp.status_code, status.HTTP_201_CREATED)
         self.assertEqual(float(create_resp.data['data']['total']), 1400.0)
 
+    def test_paid_invoice_services_are_not_returned_as_new_charges(self):
+        from pharmacy.models import Prescription, Drug
+        Drug.objects.create(
+            facility=self.facility,
+            drug_id="D001",
+            name="Amoxicillin 500mg",
+            price=200.00
+        )
+        Prescription.objects.create(
+            facility=self.facility,
+            prescription_id="RX001",
+            patient_id="PAT0001",
+            doctor_id="DOC001",
+            drugs=[
+                {"id": "D001", "name": "Amoxicillin 500mg", "quantity": 2, "price": 200.00}
+            ],
+            status="Dispensed",
+            date="2026-08-14"
+        )
+
+        invoice_response = self.client.post(
+            f"/api/billing/invoices/?facilityId={self.facility.id}/",
+            {
+                "patientId": "PAT0001",
+                "facilityId": self.facility.id,
+                "items": [],
+                "includePharmacy": True
+            },
+            format='json'
+        )
+        self.assertEqual(invoice_response.status_code, status.HTTP_201_CREATED)
+        invoice_id = invoice_response.data['data']['id']
+
+        payment_response = self.client.post(
+            f"/api/billing/invoices/{invoice_id}/payments/?facilityId={self.facility.id}/",
+            {"amount": 400, "method": "Cash"},
+            format='json'
+        )
+        self.assertEqual(payment_response.status_code, status.HTTP_201_CREATED)
+
+        charges_response = self.client.get(
+            f"/api/billing/patient-pharmacy-charges/?patientId=PAT0001&facilityId={self.facility.id}/"
+        )
+        self.assertEqual(charges_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(charges_response.data['data']['totalAmount'], 0.0)
+        self.assertEqual(charges_response.data['data']['items'], [])
+
     def test_fetch_patient_lab_charges(self):
         from laboratory.models import LabTest, LabRequest
         import datetime

@@ -1,6 +1,27 @@
 # billing/utils.py
-from django.db.models import Q
+from decimal import Decimal, InvalidOperation
+
 from pharmacy.models import Prescription, Drug
+from .models import InvoiceItem
+
+
+def _charge_key(service, amount):
+    try:
+        normalized_amount = Decimal(str(amount)).quantize(Decimal('0.01'))
+    except (InvalidOperation, TypeError, ValueError):
+        normalized_amount = Decimal('0.00')
+    return service, normalized_amount
+
+
+def _paid_invoice_charge_keys(patient, facility_id=None):
+    fac_id = facility_id or patient.facility_id
+    qs = InvoiceItem.objects.filter(invoice__patient=patient, invoice__status='Paid')
+    if fac_id:
+        qs = qs.filter(invoice__facility_id=fac_id)
+    return {
+        _charge_key(service, amount)
+        for service, amount in qs.values_list('service', 'amount')
+    }
 
 
 def get_patient_pharmacy_charges(patient, facility_id=None):
@@ -9,6 +30,7 @@ def get_patient_pharmacy_charges(patient, facility_id=None):
     Returns: (total_amount, items_list)
     """
     fac_id = facility_id or patient.facility_id
+    paid_charge_keys = _paid_invoice_charge_keys(patient, fac_id)
 
     # Find prescriptions for this patient (match patient_id or string patient pk)
     patient_identifiers = [patient.patient_id, str(patient.id)]
@@ -49,9 +71,11 @@ def get_patient_pharmacy_charges(patient, facility_id=None):
                 unit_price = drugs_by_name[drug_name.lower()]
 
             item_total = round(qty * unit_price, 2)
-            total_amount += item_total
-
             service_name = f"Pharmacy: {drug_name} (x{qty})"
+            if _charge_key(service_name, item_total) in paid_charge_keys:
+                continue
+
+            total_amount += item_total
             items_list.append({
                 'service': service_name,
                 'amount': item_total,
@@ -75,6 +99,7 @@ def get_patient_lab_charges(patient, facility_id=None):
     from laboratory.models import LabRequest
 
     fac_id = facility_id or patient.facility_id
+    paid_charge_keys = _paid_invoice_charge_keys(patient, fac_id)
     patient_identifiers = [patient.patient_id, str(patient.id)]
 
     requests = LabRequest.objects.select_related('test').filter(
@@ -88,9 +113,12 @@ def get_patient_lab_charges(patient, facility_id=None):
     for req in requests:
         test_name = req.test.name if req.test else 'Lab Test'
         unit_price = float(req.test.price) if req.test and req.test.price else 0.0
+        service_name = f"Lab: {test_name}"
+        if _charge_key(service_name, unit_price) in paid_charge_keys:
+            continue
 
         items_list.append({
-            'service': f"Lab: {test_name}",
+            'service': service_name,
             'amount': unit_price,
             'test_name': test_name,
             'unit_price': unit_price,
@@ -112,6 +140,7 @@ def get_patient_radiology_charges(patient, facility_id=None):
     from radiology.models import ImagingRequest
 
     fac_id = facility_id or patient.facility_id
+    paid_charge_keys = _paid_invoice_charge_keys(patient, fac_id)
     patient_identifiers = [patient.patient_id, str(patient.id)]
 
     requests = ImagingRequest.objects.select_related('study').filter(
@@ -125,9 +154,12 @@ def get_patient_radiology_charges(patient, facility_id=None):
     for req in requests:
         study_name = req.study.name if req.study else 'Imaging Study'
         unit_price = float(req.study.price) if req.study and req.study.price else 0.0
+        service_name = f"Radiology: {study_name}"
+        if _charge_key(service_name, unit_price) in paid_charge_keys:
+            continue
 
         items_list.append({
-            'service': f"Radiology: {study_name}",
+            'service': service_name,
             'amount': unit_price,
             'study_name': study_name,
             'unit_price': unit_price,
