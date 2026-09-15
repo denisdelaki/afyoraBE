@@ -8,6 +8,100 @@ from .models import EhrRecord, OutpatientTicket, OutpatientTicketMovement, Patie
 from pharmacy.models import Drug, Prescription
 from core.models import User
 
+VALID_CLINICAL_CODE_SYSTEMS = {
+    'KNHTS',
+    'ICD-10-WHO',
+    'ICD-10',
+    'ICD10',
+    'SNOMED-CT',
+    'SNOMED CT',
+    'SNOMED',
+    'LOINC',
+    'http://snomed.info/sct',
+    'http://hl7.org/fhir/sid/icd-10',
+    'http://id.who.int/icd/release/10',
+    'http://loinc.org',
+    'http://knhts.health.go.ke',
+}
+
+
+def is_valid_clinical_code_system(system):
+    if not system:
+        return False
+    sys_str = system.strip()
+    if sys_str in VALID_CLINICAL_CODE_SYSTEMS or sys_str.upper() in VALID_CLINICAL_CODE_SYSTEMS:
+        return True
+    lower = sys_str.lower()
+    if 'snomed' in lower or 'icd-10' in lower or 'icd10' in lower or 'loinc' in lower or 'knhts' in lower:
+        return True
+    return False
+
+
+def validate_clinical_concept(diagnosis, diagnosis_code=None, diagnosis_system=None, diagnosis_text=None):
+    """
+    Validate and normalise clinical terminology fields on a clinical record.
+
+    DHA Compliance (DHA_COMPLIANCE_MODE=True, which is the default):
+      - When `diagnosis` is provided, `diagnosisCode` is REQUIRED.
+      - `diagnosisSystem` must be one of the DHA-approved code systems.
+      - `diagnosisText` defaults to the diagnosis string when omitted.
+
+    Raises serializers.ValidationError (HTTP 400) on any violation.
+    Returns a normalised dict ready to be persisted on the model.
+    """
+    from django.conf import settings as django_settings
+
+    diagnosis = (diagnosis or '').strip()
+    code = (diagnosis_code or '').strip()
+    system = (diagnosis_system or 'KNHTS').strip() or 'KNHTS'
+    text = (diagnosis_text or diagnosis or '').strip()
+
+    dha_strict = getattr(django_settings, 'DHA_COMPLIANCE_MODE', True)
+
+    # --- Symmetric presence checks ---
+    if diagnosis and not code:
+        if dha_strict:
+            raise serializers.ValidationError({
+                'diagnosisCode': (
+                    'diagnosisCode is required when diagnosis is provided. '
+                    'Select a coded clinical concept via the KNHTS search '
+                    '(DHA Compliance Mode is enabled).'
+                )
+            })
+        # In non-strict mode we allow free-text but warn
+        # (handled by the frontend indicator)
+
+    if code and not diagnosis:
+        raise serializers.ValidationError(
+            {'diagnosis': 'diagnosis is required when diagnosisCode is provided.'}
+        )
+
+    if code and not system:
+        raise serializers.ValidationError(
+            {'diagnosisSystem': 'diagnosisSystem is required when diagnosisCode is provided.'}
+        )
+
+    if system and not is_valid_clinical_code_system(system):
+        raise serializers.ValidationError({
+            'diagnosisSystem': (
+                f'Unsupported clinical code system "{system}". '
+                f'DHA-approved systems: ICD-10-WHO, KNHTS, LOINC, SNOMED-CT.'
+            )
+        })
+
+    if diagnosis and not text:
+        raise serializers.ValidationError(
+            {'diagnosisText': 'diagnosisText cannot be empty when diagnosis is provided.'}
+        )
+
+    return {
+        'diagnosis': diagnosis,
+        'diagnosis_code': code,
+        'diagnosis_system': system,
+        'diagnosis_text': text,
+    }
+
+
 
 class DrugSerializer(serializers.Serializer):
     id = serializers.CharField(required=False, allow_blank=True, default='')
@@ -148,6 +242,9 @@ class PatientVisitSerializer(serializers.ModelSerializer):
     facilityId = serializers.IntegerField(source='facility_id')
     date = serializers.DateField(source='visit_date')
     doctor = serializers.CharField(source='served_by')
+    diagnosisCode = serializers.CharField(source='diagnosis_code', required=False, allow_blank=True, default='')
+    diagnosisSystem = serializers.CharField(source='diagnosis_system', required=False, allow_blank=True, default='KNHTS')
+    diagnosisText = serializers.CharField(source='diagnosis_text', required=False, allow_blank=True, default='')
     prescription = serializers.CharField(read_only=True)
     amountBilled = serializers.DecimalField(
         source='amount_billed',
@@ -167,6 +264,9 @@ class PatientVisitSerializer(serializers.ModelSerializer):
             'date',
             'doctor',
             'diagnosis',
+            'diagnosisCode',
+            'diagnosisSystem',
+            'diagnosisText',
             'prescription',
             'prescriptions',
             'whatHappened',
@@ -247,6 +347,18 @@ class PatientVisitSerializer(serializers.ModelSerializer):
 
         patient_external_id = attrs.pop('patientId', None)
         facility_id = attrs.get('facility_id')
+
+        normalized_concept = validate_clinical_concept(
+            attrs.get('diagnosis'),
+            attrs.get('diagnosis_code'),
+            attrs.get('diagnosis_system'),
+            attrs.get('diagnosis_text'),
+        )
+        attrs['diagnosis'] = normalized_concept['diagnosis']
+        attrs['diagnosis_code'] = normalized_concept['diagnosis_code']
+        attrs['diagnosis_system'] = normalized_concept['diagnosis_system']
+        attrs['diagnosis_text'] = normalized_concept['diagnosis_text']
+        attrs['diagnosis_lookup_timestamp'] = timezone.now()
 
         if self.instance is None and not patient_external_id:
             raise serializers.ValidationError({'patientId': 'patientId is required.'})
@@ -560,6 +672,9 @@ class OutpatientTicketSerializer(serializers.ModelSerializer):
 class EhrRecordSerializer(serializers.ModelSerializer):
     patientId = serializers.CharField(write_only=True, required=False)
     facilityId = serializers.IntegerField(source='facility_id', required=False)
+    diagnosisCode = serializers.CharField(source='diagnosis_code', required=False, allow_blank=True, default='')
+    diagnosisSystem = serializers.CharField(source='diagnosis_system', required=False, allow_blank=True, default='KNHTS')
+    diagnosisText = serializers.CharField(source='diagnosis_text', required=False, allow_blank=True, default='')
     doctorNotes = serializers.CharField(source='doctor_notes', required=False, allow_blank=True)
     prescriptions = serializers.SerializerMethodField()
     labResults = serializers.SerializerMethodField()
@@ -574,6 +689,9 @@ class EhrRecordSerializer(serializers.ModelSerializer):
             'date',
             'doctor',
             'diagnosis',
+            'diagnosisCode',
+            'diagnosisSystem',
+            'diagnosisText',
             'symptoms',
             'treatment',
             'doctorNotes',
@@ -597,6 +715,18 @@ class EhrRecordSerializer(serializers.ModelSerializer):
 
         patient_external_id = attrs.pop('patientId', None)
         facility_id = attrs.get('facility_id')
+
+        normalized_concept = validate_clinical_concept(
+            attrs.get('diagnosis'),
+            attrs.get('diagnosis_code'),
+            attrs.get('diagnosis_system'),
+            attrs.get('diagnosis_text'),
+        )
+        attrs['diagnosis'] = normalized_concept['diagnosis']
+        attrs['diagnosis_code'] = normalized_concept['diagnosis_code']
+        attrs['diagnosis_system'] = normalized_concept['diagnosis_system']
+        attrs['diagnosis_text'] = normalized_concept['diagnosis_text']
+        attrs['diagnosis_lookup_timestamp'] = timezone.now()
 
         if self.instance is None and not patient_external_id:
             raise serializers.ValidationError({'patientId': 'patientId is required.'})

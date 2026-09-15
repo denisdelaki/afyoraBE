@@ -4,8 +4,104 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
+import requests
+from unittest.mock import Mock, patch
 
-from .models import Facility, FacilityOnboarding, User
+from core.models import Facility, FacilityOnboarding, User
+
+
+class KnhtsIntegrationTests(TestCase):
+	def setUp(self):
+		self.user = User.objects.create_user(
+			username='knhts_user',
+			email='knhts@example.com',
+			password='StrongPass123!',
+			role='doctor',
+		)
+		self.client = APIClient()
+		self.client.force_authenticate(user=self.user)
+
+	@override_settings(
+		KNHTS_BASE_URL='https://knhts.example/fhir',
+		KNHTS_API_KEY='test-key',
+		KNHTS_AUTH_SCHEME='Bearer',
+		KNHTS_TIMEOUT=4,
+		KNHTS_SEARCH_PATH='ValueSet/$expand',
+	)
+	def test_search_normalizes_fhir_value_set_expansion(self):
+		response = Mock()
+		response.raise_for_status.return_value = None
+		response.json.return_value = {
+			'resourceType': 'ValueSet',
+			'expansion': {
+				'contains': [
+					{'system': 'ICD-10-WHO', 'code': 'I10', 'display': 'Essential hypertension'},
+				]
+			},
+		}
+
+		with patch('core.knhts.requests.get', return_value=response) as request:
+			result = self.client.get('/api/knhts/concepts?search=hypertension')
+
+		self.assertEqual(result.status_code, 200)
+		self.assertEqual(result.data['data'][0]['code'], 'I10')
+		self.assertEqual(result.data['data'][0]['system'], 'ICD-10-WHO')
+		request.assert_called_once_with(
+			'https://knhts.example/fhir/ValueSet/$expand',
+			params={'filter': 'hypertension', 'count': 20},
+			headers={
+				'Accept': 'application/fhir+json, application/json',
+				'Authorization': 'Bearer test-key',
+			},
+			timeout=4,
+		)
+
+	@override_settings(
+		KNHTS_BASE_URL='https://knhts.example/fhir',
+		KNHTS_API_KEY='test-key',
+		KNHTS_AUTH_SCHEME='api-key',
+		KNHTS_API_KEY_HEADER='X-API-Key',
+		KNHTS_LOOKUP_PATH='CodeSystem/$lookup',
+	)
+	def test_lookup_normalizes_fhir_parameters_response(self):
+		response = Mock()
+		response.raise_for_status.return_value = None
+		response.json.return_value = {
+			'resourceType': 'Parameters',
+			'parameter': [
+				{'name': 'code', 'valueCode': 'I10'},
+				{'name': 'display', 'valueString': 'Essential hypertension'},
+			],
+		}
+
+		with patch('core.knhts.requests.get', return_value=response):
+			result = self.client.get('/api/knhts/concepts?system=ICD-10-WHO&code=I10')
+
+		self.assertEqual(result.status_code, 200)
+		self.assertEqual(result.data['data'][0]['display'], 'Essential hypertension')
+		self.assertEqual(result.data['data'][0]['code'], 'I10')
+
+	@override_settings(KNHTS_BASE_URL='https://knhts.example/fhir', KNHTS_FALLBACK_URL='')
+	def test_upstream_failure_falls_back_to_curated_list(self):
+		"""When both KNHTS and the public fallback are unreachable the view
+		should return 200 with curated local concepts, never a 502."""
+		with patch(
+			'core.knhts.requests.get',
+			side_effect=requests.RequestException('connection failed'),
+		):
+			result = self.client.get('/api/knhts/concepts?search=malaria')
+
+		self.assertEqual(result.status_code, 200)
+		self.assertEqual(result.data.get('source'), 'curated_local')
+		# At least one malaria concept should be returned
+		self.assertTrue(len(result.data.get('data', [])) > 0)
+
+	def test_endpoint_requires_authentication(self):
+		self.client.force_authenticate(user=None)
+
+		result = self.client.get('/api/knhts/concepts?search=malaria')
+
+		self.assertEqual(result.status_code, 401)
 
 
 class TransactionalEmailTests(TestCase):

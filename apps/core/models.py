@@ -492,6 +492,8 @@ class AuditLog(BaseModel):
         ('view', 'View'),
         ('export', 'Export'),
         ('login', 'Login'),
+        ('logout', 'Logout'),
+        ('terminology_lookup', 'Terminology Lookup'),  # DHA: clinical code verification event
     )
     
     facility = models.ForeignKey(
@@ -532,3 +534,80 @@ class AuditLog(BaseModel):
     
     def __str__(self):
         return f"{self.user} - {self.action} - {self.model_name}"
+
+
+# ============================================================================
+# CONCEPT PROVENANCE LOG MODEL (DHA Certification Requirement)
+# ============================================================================
+# Immutable, append-only record of every clinical coded concept that was
+# stored on a clinical record. Required by the Kenya Digital Health Agency
+# for KNHTS compliance auditing (KHIS / DHA Certification Annex 3).
+
+class ConceptProvenanceLog(models.Model):
+    """
+    Immutable terminology provenance log for DHA certification.
+
+    Every time an EhrRecord or PatientVisit is saved with a coded diagnosis,
+    one of these records is created. It is never updated or deleted — it
+    serves as a tamper-evident audit trail proving which clinical coding
+    system and concept code was used at the moment of clinical record entry.
+
+    Fields mirror FHIR CodeableConcept to enable future FHIR export.
+    """
+
+    RECORD_TYPE_CHOICES = (
+        ('ehr', 'EHR Record'),
+        ('visit', 'Patient Visit'),
+        ('lab', 'Lab Result'),
+        ('radiology', 'Radiology Report'),
+    )
+
+    facility = models.ForeignKey(
+        Facility,
+        on_delete=models.CASCADE,
+        related_name='concept_provenance_logs',
+    )
+    user = models.ForeignKey(
+        'User',
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='concept_provenance_logs',
+    )
+
+    # FHIR CodeableConcept fields
+    code_system = models.CharField(
+        max_length=50,
+        help_text='Coding system: KNHTS, ICD-10-WHO, SNOMED-CT, LOINC, etc.',
+    )
+    code = models.CharField(max_length=100, help_text='Concept code, e.g. I10, B54, J06.9')
+    display = models.CharField(max_length=500, blank=True, help_text='Human-readable concept label')
+
+    # Which clinical record this provenance applies to
+    record_type = models.CharField(max_length=20, choices=RECORD_TYPE_CHOICES)
+    record_id = models.CharField(
+        max_length=100,
+        help_text='Primary key of the clinical record (EhrRecord.id or PatientVisit.id)',
+    )
+
+    # DHA-required provenance timestamp — when the code was applied
+    looked_up_at = models.DateTimeField(
+        help_text='Timestamp when the coded concept was applied to the clinical record',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['facility', 'record_type', 'record_id']),
+            models.Index(fields=['facility', 'code_system', 'code']),
+            models.Index(fields=['facility', 'created_at']),
+        ]
+        verbose_name = 'Concept Provenance Log'
+        verbose_name_plural = 'Concept Provenance Logs'
+
+    def __str__(self):
+        return (
+            f"[{self.code_system}:{self.code}] "
+            f"on {self.record_type}/{self.record_id} "
+            f"@ {self.looked_up_at}"
+        )

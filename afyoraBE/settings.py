@@ -41,6 +41,20 @@ SECRET_KEY = _configured_secret_key
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=ENVIRONMENT == 'development', cast=bool)
 
+# ============================================================================
+# DHA / KNHTS COMPLIANCE SETTINGS
+# ============================================================================
+# DHA_COMPLIANCE_MODE = True enforces strict clinical code validation:
+#   - All EHR and PatientVisit records MUST carry a coded diagnosis.
+#   - Free-text-only records are rejected with HTTP 400.
+# Set to False only during a migration grace period.
+
+DHA_COMPLIANCE_MODE = config('DHA_COMPLIANCE_MODE', default=True, cast=bool)
+
+# Ministry of Health Master Facility List code for this deployment.
+# Included in X-DHA-Facility-MFL response header for interoperability.
+MFL_CODE = config('MFL_CODE', default='').strip()
+
 
 def parse_hosts(value):
     hosts = []
@@ -107,6 +121,8 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    # DHA compliance: adds X-DHA-Facility-MFL header to authenticated responses
+    'core.compliance.DhaComplianceHeaderMiddleware',
 ]
 
 ROOT_URLCONF = 'afyoraBE.urls'
@@ -346,11 +362,33 @@ SIMPLE_JWT = {
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+# Kenya Standard Time — required by Kenya health data standards (KHF 001)
+TIME_ZONE = 'Africa/Nairobi'
 
 USE_I18N = True
 
 USE_TZ = True
+
+# KNHTS FHIR terminology service — official Kenya National Health Terminology Service
+KNHTS_BASE_URL = config('KNHTS_BASE_URL', default='https://knhts.health.go.ke/fhir').strip().rstrip('/')
+KNHTS_SEARCH_PATH = config('KNHTS_SEARCH_PATH', default='ValueSet/$expand').strip()
+KNHTS_LOOKUP_PATH = config('KNHTS_LOOKUP_PATH', default='CodeSystem/$lookup').strip()
+KNHTS_API_KEY = config('KNHTS_API_KEY', default='').strip()
+KNHTS_AUTH_SCHEME = config('KNHTS_AUTH_SCHEME', default='Bearer').strip() or 'Bearer'
+KNHTS_API_KEY_HEADER = config('KNHTS_API_KEY_HEADER', default='X-API-Key').strip() or 'X-API-Key'
+KNHTS_TIMEOUT = config('KNHTS_TIMEOUT', default=10, cast=int)
+
+# Secondary public FHIR server — used automatically when the primary KNHTS
+# server is unreachable (e.g. during development or before API key is issued).
+# Set KNHTS_FALLBACK_URL='' in .env to disable and rely solely on the
+# built-in curated concept list.
+KNHTS_FALLBACK_URL = config(
+    'KNHTS_FALLBACK_URL',
+    default='https://r4.ontoserver.csiro.au/fhir',
+).strip().rstrip('/')
+# Fallback servers generally don't require auth; override in .env if yours does.
+KNHTS_FALLBACK_API_KEY = config('KNHTS_FALLBACK_API_KEY', default='').strip()
+KNHTS_FALLBACK_TIMEOUT = config('KNHTS_FALLBACK_TIMEOUT', default=15, cast=int)
 
 
 # ============================================================================

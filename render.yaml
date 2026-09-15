@@ -30,6 +30,20 @@ services:
         sync: false
       - key: DEFAULT_FROM_EMAIL
         sync: false
+      - key: KNHTS_BASE_URL
+        value: https://knhts.health.go.ke/fhir
+      - key: KNHTS_API_KEY
+        sync: false
+      - key: KNHTS_AUTH_SCHEME
+        value: Bearer
+      - key: KNHTS_API_KEY_HEADER
+        value: X-API-Key
+      - key: KNHTS_TIMEOUT
+        value: 10
+      - key: KNHTS_SEARCH_PATH
+        value: ValueSet/$expand
+      - key: KNHTS_LOOKUP_PATH
+        value: CodeSystem/$lookup
 
 databases:
   - name: afyorabe-db

@@ -167,6 +167,9 @@ class PatientVisitAPITests(TestCase):
 			'date': '2024-02-20',
 			'doctor': 'Dr. Chen',
 			'diagnosis': 'Hypertension Follow-up',
+			'diagnosisCode': 'I10',
+			'diagnosisSystem': 'ICD-10-WHO',
+			'diagnosisText': 'Hypertension Follow-up',
 			'prescription': 'Amlodipine 5mg',
 			'amountBilled': '2500.00',
 			'whatHappened': 'Patient reported stable blood pressure levels.',
@@ -178,6 +181,22 @@ class PatientVisitAPITests(TestCase):
 		self.assertEqual(PatientVisit.objects.count(), 1)
 		self.assertEqual(response.data['doctor'], 'Dr. Chen')
 		self.assertEqual(response.data['patientId'], 'PAT0001')
+		self.assertEqual(response.data['diagnosisCode'], 'I10')
+
+	def test_create_patient_visit_requires_knhts_code_metadata(self):
+		payload = {
+			'facilityId': self.facility.id,
+			'patientId': self.patient.patient_id,
+			'date': '2024-02-20',
+			'doctor': 'Dr. Chen',
+			'diagnosis': 'Hypertension Follow-up',
+			'amountBilled': '2500.00',
+		}
+
+		response = self.client.post('/api/patients/visits/', payload, format='json')
+
+		self.assertEqual(response.status_code, 400)
+		self.assertIn('diagnosisCode', response.data)
 
 	def test_list_patient_visits_for_patient(self):
 		PatientVisit.objects.create(
@@ -222,6 +241,9 @@ class PatientVisitAPITests(TestCase):
 			f'/api/patients/visits/{visit.id}/?facilityId={self.facility.id}',
 			{
 				'diagnosis': 'Routine Checkup',
+				'diagnosisCode': 'Z00.00',
+				'diagnosisSystem': 'ICD-10-WHO',
+				'diagnosisText': 'Routine Checkup',
 				'amountBilled': '3000.00',
 			},
 			format='json',
@@ -264,6 +286,9 @@ class PatientVisitAPITests(TestCase):
 			'date': '2024-02-20',
 			'doctor': 'Dr. Chen',
 			'diagnosis': 'Hypertension Follow-up',
+			'diagnosisCode': 'I10',
+			'diagnosisSystem': 'ICD-10-WHO',
+			'diagnosisText': 'Hypertension Follow-up',
 			'prescription': 'Amlodipine 5mg',
 			'amountBilled': '2500.00',
 		}
@@ -298,7 +323,12 @@ class PatientVisitAPITests(TestCase):
 
 		patch_response = self.client.patch(
 			f'/api/patients/{self.patient.patient_id}/visit-history/{visit.id}/?facilityId={self.facility.id}/',
-			{'diagnosis': 'Routine Follow-up'},
+			{
+				'diagnosis': 'Routine Follow-up',
+				'diagnosisCode': 'Z00.00',
+				'diagnosisSystem': 'ICD-10-WHO',
+				'diagnosisText': 'Routine Follow-up',
+			},
 			format='json',
 		)
 		self.assertEqual(patch_response.status_code, 200)
@@ -312,6 +342,9 @@ class PatientVisitAPITests(TestCase):
 				'date': '2024-02-21',
 				'doctor': 'Dr. Wilson',
 				'diagnosis': 'Annual Checkup',
+				'diagnosisCode': 'Z00.01',
+				'diagnosisSystem': 'ICD-10-WHO',
+				'diagnosisText': 'Annual Checkup',
 				'prescription': 'None',
 				'amountBilled': '0.00',
 				'whatHappened': 'General wellness check.',

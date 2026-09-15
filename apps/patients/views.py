@@ -7,8 +7,9 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 
-from core.models import User
+from core.models import AuditLog, User
 from core.utils import check_module_permission
+from core.compliance import log_concept_provenance
 from .models import EhrRecord, OutpatientTicket, OutpatientTicketMovement, Patient, PatientVisit
 from .serializers import EhrRecordSerializer, OutpatientTicketSerializer, PatientSerializer, PatientVisitSerializer
 
@@ -181,17 +182,69 @@ class PatientVisitViewSet(viewsets.ModelViewSet):
 	def perform_create(self, serializer):
 		facility_id = self._get_facility_id_from_body()
 		self._enforce_user_facility_access(facility_id)
-		serializer.save(facility_id=facility_id)
+		visit = serializer.save(facility_id=facility_id)
+		# DHA: write provenance log if a coded concept was stored
+		if visit.diagnosis_code:
+			log_concept_provenance(
+				user=self.request.user,
+				facility=visit.facility,
+				record_type='visit',
+				record_id=str(visit.id),
+				concept={
+					'code_system': visit.diagnosis_system,
+					'code': visit.diagnosis_code,
+					'display': visit.diagnosis_text or visit.diagnosis,
+				},
+			)
+			AuditLog.objects.create(
+				facility=visit.facility,
+				user=self.request.user,
+				action='create',
+				model_name='PatientVisit',
+				object_id=str(visit.id),
+				description=(
+					f'Visit record created for patient {visit.patient.patient_id}. '
+					f'Coded diagnosis: [{visit.diagnosis_system}:{visit.diagnosis_code}] '
+					f'{visit.diagnosis_text or visit.diagnosis}'
+				),
+				ip_address=self.request.META.get('REMOTE_ADDR'),
+			)
 
 	def perform_update(self, serializer):
-		visit = self.get_object()
+		visit_before = self.get_object()
 		facility_id = self._get_facility_id_from_query()
 		self._enforce_user_facility_access(facility_id)
 
-		if visit.facility_id != facility_id:
+		if visit_before.facility_id != facility_id:
 			raise PermissionDenied('You cannot modify visits from another facility.')
 
-		serializer.save()
+		visit = serializer.save()
+		# DHA: write provenance log if a coded concept was updated
+		if visit.diagnosis_code:
+			log_concept_provenance(
+				user=self.request.user,
+				facility=visit.facility,
+				record_type='visit',
+				record_id=str(visit.id),
+				concept={
+					'code_system': visit.diagnosis_system,
+					'code': visit.diagnosis_code,
+					'display': visit.diagnosis_text or visit.diagnosis,
+				},
+			)
+			AuditLog.objects.create(
+				facility=visit.facility,
+				user=self.request.user,
+				action='update',
+				model_name='PatientVisit',
+				object_id=str(visit.id),
+				description=(
+					f'Visit record updated for patient {visit.patient.patient_id}. '
+					f'Coded diagnosis: [{visit.diagnosis_system}:{visit.diagnosis_code}] '
+					f'{visit.diagnosis_text or visit.diagnosis}'
+				),
+				ip_address=self.request.META.get('REMOTE_ADDR'),
+			)
 
 	def perform_destroy(self, instance):
 		facility_id = self._get_facility_id_from_query()
@@ -442,7 +495,33 @@ class EhrRecordViewSet(viewsets.ModelViewSet):
 		patient = self._get_patient_from_path(facility_id)
 		user = self.request.user
 		doctor_name = f"{user.first_name} {user.last_name}".strip() or user.email
-		serializer.save(facility_id=facility_id, patient=patient, doctor=doctor_name)
+		ehr = serializer.save(facility_id=facility_id, patient=patient, doctor=doctor_name)
+		# DHA: write provenance log if a coded concept was stored
+		if ehr.diagnosis_code:
+			log_concept_provenance(
+				user=user,
+				facility=ehr.facility,
+				record_type='ehr',
+				record_id=str(ehr.id),
+				concept={
+					'code_system': ehr.diagnosis_system,
+					'code': ehr.diagnosis_code,
+					'display': ehr.diagnosis_text or ehr.diagnosis,
+				},
+			)
+			AuditLog.objects.create(
+				facility=ehr.facility,
+				user=user,
+				action='create',
+				model_name='EhrRecord',
+				object_id=str(ehr.id),
+				description=(
+					f'EHR record created for patient {ehr.patient.patient_id} by {doctor_name}. '
+					f'Coded diagnosis: [{ehr.diagnosis_system}:{ehr.diagnosis_code}] '
+					f'{ehr.diagnosis_text or ehr.diagnosis}'
+				),
+				ip_address=self.request.META.get('REMOTE_ADDR'),
+			)
 
 	def perform_update(self, serializer):
 		record = self.get_object()
@@ -450,7 +529,33 @@ class EhrRecordViewSet(viewsets.ModelViewSet):
 		self._enforce_user_facility_access(facility_id)
 		if record.facility_id != facility_id:
 			raise PermissionDenied('You cannot modify EHR records from another facility.')
-		serializer.save()
+		ehr = serializer.save()
+		# DHA: write provenance log if coded concept was updated
+		if ehr.diagnosis_code:
+			log_concept_provenance(
+				user=self.request.user,
+				facility=ehr.facility,
+				record_type='ehr',
+				record_id=str(ehr.id),
+				concept={
+					'code_system': ehr.diagnosis_system,
+					'code': ehr.diagnosis_code,
+					'display': ehr.diagnosis_text or ehr.diagnosis,
+				},
+			)
+			AuditLog.objects.create(
+				facility=ehr.facility,
+				user=self.request.user,
+				action='update',
+				model_name='EhrRecord',
+				object_id=str(ehr.id),
+				description=(
+					f'EHR record updated for patient {ehr.patient.patient_id}. '
+					f'Coded diagnosis: [{ehr.diagnosis_system}:{ehr.diagnosis_code}] '
+					f'{ehr.diagnosis_text or ehr.diagnosis}'
+				),
+				ip_address=self.request.META.get('REMOTE_ADDR'),
+			)
 
 	def perform_destroy(self, instance):
 		facility_id = self._get_facility_id_from_query()
@@ -502,7 +607,34 @@ class PatientVisitHistoryViewSet(PatientVisitViewSet):
 
 		serializer = self.get_serializer(data=payload)
 		serializer.is_valid(raise_exception=True)
-		serializer.save(facility_id=facility_id, patient=patient)
+		visit = serializer.save(facility_id=facility_id, patient=patient)
+		
+		if visit.diagnosis_code:
+			log_concept_provenance(
+				user=self.request.user,
+				facility=visit.facility,
+				record_type='visit',
+				record_id=str(visit.id),
+				concept={
+					'code_system': visit.diagnosis_system,
+					'code': visit.diagnosis_code,
+					'display': visit.diagnosis_text or visit.diagnosis,
+				},
+			)
+			AuditLog.objects.create(
+				facility=visit.facility,
+				user=self.request.user,
+				action='create',
+				model_name='PatientVisit',
+				object_id=str(visit.id),
+				description=(
+					f'Visit record created for patient {visit.patient.patient_id}. '
+					f'Coded diagnosis: [{visit.diagnosis_system}:{visit.diagnosis_code}] '
+					f'{visit.diagnosis_text or visit.diagnosis}'
+				),
+				ip_address=self.request.META.get('REMOTE_ADDR'),
+			)
+
 		headers = self.get_success_headers(serializer.data)
 
 		return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)

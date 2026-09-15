@@ -21,6 +21,7 @@ from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from .models import User, Facility, Department, FacilityOnboarding, AuditLog, EmailOTP, FacilityRole, FacilitySubscriptionPayment, ALL_MODULE_PERMISSIONS
 from .utils import generate_and_send_otp, AuthRateThrottle
+from .knhts import KnhtsServiceError, lookup_concept, lookup_from_url, search_concepts, search_from_url
 from .serializers import (
     SignupSerializer, LoginSerializer, SignupResponseSerializer,
     LoginResponseSerializer, UserSerializer, UserDetailSerializer,
@@ -30,6 +31,161 @@ from .serializers import (
     PasswordResetRequestSerializer, PasswordResetConfirmSerializer,
     FacilityRoleSerializer,
 )
+
+
+# ---------------------------------------------------------------------------
+# Curated ICD-10-WHO fallback concepts – used when the upstream KNHTS FHIR
+# server is unreachable (e.g. in development, no API key, or network issues).
+# ---------------------------------------------------------------------------
+_FALLBACK_CONCEPTS = [
+    {'system': 'ICD-10-WHO', 'code': 'A00',   'display': 'Cholera'},
+    {'system': 'ICD-10-WHO', 'code': 'A01',   'display': 'Typhoid and paratyphoid fevers'},
+    {'system': 'ICD-10-WHO', 'code': 'A06',   'display': 'Amoebiasis'},
+    {'system': 'ICD-10-WHO', 'code': 'A09',   'display': 'Diarrhoea and gastroenteritis of presumed infectious origin'},
+    {'system': 'ICD-10-WHO', 'code': 'A15',   'display': 'Respiratory tuberculosis'},
+    {'system': 'ICD-10-WHO', 'code': 'A37',   'display': 'Whooping cough'},
+    {'system': 'ICD-10-WHO', 'code': 'A50',   'display': 'Congenital syphilis'},
+    {'system': 'ICD-10-WHO', 'code': 'B00',   'display': 'Herpes simplex infections'},
+    {'system': 'ICD-10-WHO', 'code': 'B05',   'display': 'Measles'},
+    {'system': 'ICD-10-WHO', 'code': 'B15',   'display': 'Acute hepatitis A'},
+    {'system': 'ICD-10-WHO', 'code': 'B16',   'display': 'Acute hepatitis B'},
+    {'system': 'ICD-10-WHO', 'code': 'B24',   'display': 'Unspecified human immunodeficiency virus (HIV) disease'},
+    {'system': 'ICD-10-WHO', 'code': 'B50',   'display': 'Plasmodium falciparum malaria'},
+    {'system': 'ICD-10-WHO', 'code': 'B51',   'display': 'Plasmodium vivax malaria'},
+    {'system': 'ICD-10-WHO', 'code': 'B54',   'display': 'Unspecified malaria'},
+    {'system': 'ICD-10-WHO', 'code': 'C34',   'display': 'Malignant neoplasm of bronchus and lung'},
+    {'system': 'ICD-10-WHO', 'code': 'D50',   'display': 'Iron deficiency anaemia'},
+    {'system': 'ICD-10-WHO', 'code': 'E10',   'display': 'Type 1 diabetes mellitus'},
+    {'system': 'ICD-10-WHO', 'code': 'E11',   'display': 'Type 2 diabetes mellitus'},
+    {'system': 'ICD-10-WHO', 'code': 'E40',   'display': 'Kwashiorkor'},
+    {'system': 'ICD-10-WHO', 'code': 'E46',   'display': 'Unspecified protein-energy malnutrition'},
+    {'system': 'ICD-10-WHO', 'code': 'G40',   'display': 'Epilepsy'},
+    {'system': 'ICD-10-WHO', 'code': 'I10',   'display': 'Essential (primary) hypertension'},
+    {'system': 'ICD-10-WHO', 'code': 'I21',   'display': 'Acute myocardial infarction'},
+    {'system': 'ICD-10-WHO', 'code': 'I50',   'display': 'Heart failure'},
+    {'system': 'ICD-10-WHO', 'code': 'J00',   'display': 'Acute nasopharyngitis (common cold)'},
+    {'system': 'ICD-10-WHO', 'code': 'J06.9', 'display': 'Acute upper respiratory infection, unspecified'},
+    {'system': 'ICD-10-WHO', 'code': 'J18',   'display': 'Pneumonia, unspecified organism'},
+    {'system': 'ICD-10-WHO', 'code': 'J45',   'display': 'Asthma'},
+    {'system': 'ICD-10-WHO', 'code': 'K29',   'display': 'Gastritis and duodenitis'},
+    {'system': 'ICD-10-WHO', 'code': 'K35',   'display': 'Acute appendicitis'},
+    {'system': 'ICD-10-WHO', 'code': 'K80',   'display': 'Cholelithiasis (gallstones)'},
+    {'system': 'ICD-10-WHO', 'code': 'L03',   'display': 'Cellulitis'},
+    {'system': 'ICD-10-WHO', 'code': 'M10',   'display': 'Gout'},
+    {'system': 'ICD-10-WHO', 'code': 'M54.5', 'display': 'Low back pain'},
+    {'system': 'ICD-10-WHO', 'code': 'N18',   'display': 'Chronic kidney disease'},
+    {'system': 'ICD-10-WHO', 'code': 'N39.0', 'display': 'Urinary tract infection, site not specified'},
+    {'system': 'ICD-10-WHO', 'code': 'O10',   'display': 'Pre-existing hypertension complicating pregnancy'},
+    {'system': 'ICD-10-WHO', 'code': 'O24',   'display': 'Diabetes mellitus in pregnancy'},
+    {'system': 'ICD-10-WHO', 'code': 'O80',   'display': 'Single spontaneous delivery'},
+    {'system': 'ICD-10-WHO', 'code': 'P07',   'display': 'Disorders related to short gestation and low birth weight'},
+    {'system': 'ICD-10-WHO', 'code': 'R00',   'display': 'Abnormalities of heart beat'},
+    {'system': 'ICD-10-WHO', 'code': 'R05',   'display': 'Cough'},
+    {'system': 'ICD-10-WHO', 'code': 'R07',   'display': 'Pain in throat and chest'},
+    {'system': 'ICD-10-WHO', 'code': 'R10',   'display': 'Abdominal and pelvic pain'},
+    {'system': 'ICD-10-WHO', 'code': 'R50',   'display': 'Fever of other and unknown origin'},
+    {'system': 'ICD-10-WHO', 'code': 'R51',   'display': 'Headache'},
+    {'system': 'ICD-10-WHO', 'code': 'S00',   'display': 'Superficial injury of head'},
+    {'system': 'ICD-10-WHO', 'code': 'S72',   'display': 'Fracture of femur'},
+    {'system': 'ICD-10-WHO', 'code': 'Z00',   'display': 'General examination and investigation of persons without complaint'},
+]
+
+
+def _make_concept(item):
+    """Convert a flat dict to the standard concept envelope."""
+    return {
+        'coding': [{'system': item['system'], 'code': item['code'], 'display': item['display']}],
+        'text':    item['display'],
+        'display': item['display'],
+        'system':  item['system'],
+        'code':    item['code'],
+    }
+
+
+def _fallback_search(search_term):
+    needle = search_term.lower()
+    matches = [
+        _make_concept(c)
+        for c in _FALLBACK_CONCEPTS
+        if needle in c['display'].lower() or needle in c['code'].lower()
+    ]
+    return matches or [_make_concept(c) for c in _FALLBACK_CONCEPTS[:5]]
+
+
+def _fallback_lookup(system, code):
+    for c in _FALLBACK_CONCEPTS:
+        if c['code'].upper() == code.upper():
+            return _make_concept(c)
+    return None
+
+
+class KnhtsConceptView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        log = __import__('logging').getLogger(__name__)
+
+        search = request.query_params.get('search', '').strip()
+        system = request.query_params.get('system', '').strip()
+        code   = request.query_params.get('code',   '').strip()
+
+        if not search and not code:
+            return Response(
+                {'detail': 'Provide search or code query parameters.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ── Tier 1: official KNHTS FHIR server ──────────────────────────────
+        try:
+            if search:
+                concepts = search_concepts(search)
+            else:
+                concept  = lookup_concept(system or 'KNHTS', code)
+                concepts = [concept] if concept else []
+
+            return Response({'data': concepts, 'source': 'knhts'})
+
+        except KnhtsServiceError:
+            log.warning('KNHTS primary server unavailable; trying fallback FHIR server.')
+
+        # ── Tier 2: configurable public FHIR server (HAPI by default) ───────
+        fallback_url = getattr(settings, 'KNHTS_FALLBACK_URL', '').strip()
+        if fallback_url:
+            try:
+                fallback_key     = getattr(settings, 'KNHTS_FALLBACK_API_KEY', '')
+                fallback_timeout = getattr(settings, 'KNHTS_FALLBACK_TIMEOUT', 15)
+                if search:
+                    concepts = search_from_url(
+                        search,
+                        base_url=fallback_url,
+                        api_key=fallback_key,
+                        timeout=fallback_timeout,
+                    )
+                else:
+                    concept  = lookup_from_url(
+                        system or 'ICD-10-WHO', code,
+                        base_url=fallback_url,
+                        api_key=fallback_key,
+                        timeout=fallback_timeout,
+                    )
+                    concepts = [concept] if concept else []
+
+                return Response({'data': concepts, 'source': 'fallback_fhir'})
+
+            except KnhtsServiceError:
+                log.warning(
+                    'Fallback FHIR server (%s) also unavailable; using curated list.',
+                    fallback_url,
+                )
+
+        # ── Tier 3: curated local ICD-10-WHO concept list ───────────────────
+        if search:
+            data = _fallback_search(search)
+        else:
+            concept = _fallback_lookup(system, code)
+            data = [concept] if concept else []
+
+        return Response({'data': data, 'source': 'curated_local'})
 
 
 def get_audit_facility_for_user(user):
@@ -1454,3 +1610,83 @@ class FacilityRoleViewSet(viewsets.ModelViewSet):
             },
             status=status.HTTP_200_OK,
         )
+
+
+class ConceptProvenanceLogView(APIView):
+    """
+    GET /api/compliance/terminology-log/
+    
+    DHA Compliance Endpoint: Retrieves the immutable terminology provenance log
+    for the authenticated facility.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        facility = user.facility
+
+        if not facility:
+            return Response(
+                {'error': 'Your account is not assigned to a facility.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+            
+        # Only admins and facility_admins can view compliance logs
+        if user.role not in ('admin', 'facility_admin'):
+            return Response(
+                {'error': 'You do not have permission to view compliance logs.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Import here to avoid circular imports
+        from .models import ConceptProvenanceLog
+        
+        queryset = ConceptProvenanceLog.objects.filter(facility=facility).order_by('-created_at')
+        
+        # Optional filtering
+        record_type = request.query_params.get('record_type')
+        if record_type:
+            queryset = queryset.filter(record_type=record_type)
+            
+        record_id = request.query_params.get('record_id')
+        if record_id:
+            queryset = queryset.filter(record_id=record_id)
+            
+        code_system = request.query_params.get('code_system')
+        if code_system:
+            queryset = queryset.filter(code_system=code_system)
+
+        # Basic manual pagination for the endpoint
+        try:
+            page = int(request.query_params.get('page', 1))
+            page_size = int(request.query_params.get('page_size', 50))
+        except ValueError:
+            page = 1
+            page_size = 50
+
+        start = (page - 1) * page_size
+        end = start + page_size
+        
+        total_count = queryset.count()
+        logs = queryset[start:end]
+        
+        results = []
+        for log in logs:
+            results.append({
+                'id': log.id,
+                'user': log.user.email if log.user else 'System',
+                'code_system': log.code_system,
+                'code': log.code,
+                'display': log.display,
+                'record_type': log.record_type,
+                'record_id': log.record_id,
+                'looked_up_at': log.looked_up_at.isoformat() if log.looked_up_at else None,
+                'created_at': log.created_at.isoformat() if log.created_at else None,
+            })
+            
+        return Response({
+            'count': total_count,
+            'page': page,
+            'page_size': page_size,
+            'results': results
+        }, status=status.HTTP_200_OK)

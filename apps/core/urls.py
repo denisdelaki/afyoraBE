@@ -6,6 +6,7 @@ from .views import (
     SignupView, LoginView, RefreshView, LogoutView, CompleteOnboardingView,
     VerifyOTPView, ResendOTPView, PasswordResetRequestView, PasswordResetConfirmView,
     UserViewSet, FacilityViewSet, DepartmentViewSet, FacilityRoleViewSet,
+    KnhtsConceptView, ConceptProvenanceLogView,
 )
 
 # ============================================================================
@@ -33,6 +34,11 @@ router.register(r'roles', FacilityRoleViewSet, basename='facilityrole')
 
 # URL Patterns
 urlpatterns = [
+    path('knhts/concepts', KnhtsConceptView.as_view(), name='knhts-concepts'),
+    path('knhts/concepts/', KnhtsConceptView.as_view()),
+    
+    # Compliance endpoint
+    path('compliance/terminology-log/', ConceptProvenanceLogView.as_view(), name='terminology-log'),
     # Authentication endpoints (no prefix)
     path('auth/signup/', SignupView.as_view(), name='signup'),
     path('auth/login/', LoginView.as_view(), name='login'),

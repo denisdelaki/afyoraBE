@@ -90,6 +90,10 @@ class PatientVisit(BaseModel):
 	visit_date = models.DateField()
 	served_by = models.CharField(max_length=150)
 	diagnosis = models.CharField(max_length=255, blank=True)
+	diagnosis_code = models.CharField(max_length=50, blank=True, default='')
+	diagnosis_system = models.CharField(max_length=50, blank=True, default='KNHTS')
+	diagnosis_text = models.CharField(max_length=255, blank=True, default='')
+	diagnosis_lookup_timestamp = models.DateTimeField(null=True, blank=True)
 	prescription_record = models.ForeignKey(
 		'pharmacy.Prescription',
 		on_delete=models.SET_NULL,
@@ -188,6 +192,10 @@ class EhrRecord(BaseModel):
 	date = models.DateField(auto_now_add=True)
 	doctor = models.CharField(max_length=150)
 	diagnosis = models.CharField(max_length=255)
+	diagnosis_code = models.CharField(max_length=50, blank=True, default='')
+	diagnosis_system = models.CharField(max_length=50, blank=True, default='KNHTS')
+	diagnosis_text = models.CharField(max_length=255, blank=True, default='')
+	diagnosis_lookup_timestamp = models.DateTimeField(null=True, blank=True)
 	symptoms = models.TextField(blank=True)
 	treatment = models.TextField(blank=True)
 	doctor_notes = models.TextField(blank=True)
