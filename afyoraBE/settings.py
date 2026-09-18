@@ -110,6 +110,8 @@ INSTALLED_APPS = [
     'inventory',                     # Stock management
     'employees',                     # Staff management
     'reports',                       # Analytics & reports
+    'surveillance',                  # DHA public health & disease surveillance reporting
+    'interoperability',              # Kenya HIE, FHIR/SDMX exchange, quality measures
 ]
 
 MIDDLEWARE = [

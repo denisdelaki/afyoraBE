@@ -4,7 +4,16 @@ from datetime import date
 import time
 from django.db import IntegrityError, OperationalError, transaction
 
-from .models import EhrRecord, OutpatientTicket, OutpatientTicketMovement, Patient, PatientVisit
+from .models import (
+    AllergyItem,
+    CpoeOrder,
+    EhrRecord,
+    OutpatientTicket,
+    OutpatientTicketMovement,
+    Patient,
+    PatientVisit,
+    ProblemItem,
+)
 from pharmacy.models import Drug, Prescription
 from core.models import User
 
@@ -755,6 +764,118 @@ class EhrRecordSerializer(serializers.ModelSerializer):
                 )
 
         return attrs
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data['patientId'] = instance.patient.patient_id
+        return data
+
+
+def _resolve_patient_for_write(attrs, instance, target_model_label):
+    """Shared patientId/facilityId → Patient FK resolution for EHR sub-records."""
+    patient_external_id = attrs.pop('patientId', None)
+    facility_id = attrs.get('facility_id')
+
+    if instance is None and not patient_external_id:
+        raise serializers.ValidationError({'patientId': 'patientId is required.'})
+    if instance is None and facility_id is None:
+        raise serializers.ValidationError({'facilityId': 'facilityId is required.'})
+
+    target_facility_id = facility_id if facility_id is not None else instance.facility_id
+
+    if patient_external_id:
+        patient = Patient.objects.filter(
+            patient_id=patient_external_id,
+            facility_id=target_facility_id,
+            is_active=True,
+        ).first()
+        if patient is None:
+            raise serializers.ValidationError(
+                {'patientId': 'Patient not found for the provided facilityId.'}
+            )
+        attrs['patient'] = patient
+
+    if instance is not None and 'facility_id' in attrs and attrs['facility_id'] != instance.facility_id:
+        raise serializers.ValidationError(
+            {'facilityId': f'A {target_model_label} cannot be moved to another facility.'}
+        )
+
+    return attrs
+
+
+class ProblemItemSerializer(serializers.ModelSerializer):
+    patientId = serializers.CharField(write_only=True, required=False)
+    facilityId = serializers.IntegerField(source='facility_id', required=False)
+    onsetDate = serializers.DateField(source='onset_date', required=False, allow_null=True)
+    resolvedDate = serializers.DateField(source='resolved_date', required=False, allow_null=True)
+    recordedBy = serializers.CharField(source='recorded_by', required=False, allow_blank=True)
+
+    class Meta:
+        model = ProblemItem
+        fields = [
+            'id', 'facilityId', 'patientId', 'code', 'system', 'display',
+            'status', 'onsetDate', 'resolvedDate', 'notes', 'recordedBy',
+            'is_active', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'is_active', 'created_at', 'updated_at']
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        return _resolve_patient_for_write(attrs, self.instance, 'problem item')
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data['patientId'] = instance.patient.patient_id
+        return data
+
+
+class AllergyItemSerializer(serializers.ModelSerializer):
+    patientId = serializers.CharField(write_only=True, required=False)
+    facilityId = serializers.IntegerField(source='facility_id', required=False)
+    allergenName = serializers.CharField(source='allergen_name')
+    allergenCode = serializers.CharField(source='allergen_code', required=False, allow_blank=True)
+    allergyType = serializers.CharField(source='allergy_type', required=False)
+    onsetDate = serializers.DateField(source='onset_date', required=False, allow_null=True)
+
+    class Meta:
+        model = AllergyItem
+        fields = [
+            'id', 'facilityId', 'patientId', 'allergenName', 'allergenCode',
+            'allergyType', 'severity', 'reaction', 'onsetDate',
+            'is_active', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'is_active', 'created_at', 'updated_at']
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        return _resolve_patient_for_write(attrs, self.instance, 'allergy item')
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data['patientId'] = instance.patient.patient_id
+        return data
+
+
+class CpoeOrderSerializer(serializers.ModelSerializer):
+    patientId = serializers.CharField(write_only=True, required=False)
+    facilityId = serializers.IntegerField(source='facility_id', required=False)
+    orderType = serializers.CharField(source='order_type')
+    orderedBy = serializers.CharField(source='ordered_by', required=False, allow_blank=True)
+    orderDate = serializers.DateField(source='order_date', read_only=True)
+    billingAmount = serializers.DecimalField(source='billing_amount', max_digits=10, decimal_places=2, required=False)
+
+    class Meta:
+        model = CpoeOrder
+        fields = [
+            'id', 'facilityId', 'patientId', 'orderType', 'title', 'code', 'system',
+            'instructions', 'orderedBy', 'orderDate', 'status', 'billingAmount',
+            'is_active', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'orderDate', 'is_active', 'created_at', 'updated_at']
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        return _resolve_patient_for_write(attrs, self.instance, 'CPOE order')
 
     def to_representation(self, instance):
         data = super().to_representation(instance)

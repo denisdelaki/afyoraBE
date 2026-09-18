@@ -10,8 +10,16 @@ from rest_framework import status
 from core.models import AuditLog, User
 from core.utils import check_module_permission
 from core.compliance import log_concept_provenance
-from .models import EhrRecord, OutpatientTicket, OutpatientTicketMovement, Patient, PatientVisit
-from .serializers import EhrRecordSerializer, OutpatientTicketSerializer, PatientSerializer, PatientVisitSerializer
+from .models import AllergyItem, CpoeOrder, EhrRecord, OutpatientTicket, OutpatientTicketMovement, Patient, PatientVisit, ProblemItem
+from .serializers import (
+	AllergyItemSerializer,
+	CpoeOrderSerializer,
+	EhrRecordSerializer,
+	OutpatientTicketSerializer,
+	PatientSerializer,
+	PatientVisitSerializer,
+	ProblemItemSerializer,
+)
 
 
 class PatientViewSet(viewsets.ModelViewSet):
@@ -638,3 +646,93 @@ class PatientVisitHistoryViewSet(PatientVisitViewSet):
 		headers = self.get_success_headers(serializer.data)
 
 		return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
+
+class _FacilityPatientScopedViewSet(viewsets.ModelViewSet):
+	"""Shared facilityId/patientId query-param scoping for EHR sub-records."""
+
+	permission_classes = [IsAuthenticated]
+	MODULE_KEY = 'ehr'
+	http_method_names = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options']
+	ordering = ['-created_at']
+
+	def initial(self, request, *args, **kwargs):
+		super().initial(request, *args, **kwargs)
+		if request.user and request.user.is_authenticated:
+			check_module_permission(request.user, self.MODULE_KEY, request=request)
+
+	@staticmethod
+	def _parse_facility_id(value, error_message):
+		if isinstance(value, str):
+			value = value.strip().rstrip('/')
+		try:
+			return int(value)
+		except (TypeError, ValueError):
+			raise ValidationError({'facilityId': error_message})
+
+	def _get_facility_id_from_query(self):
+		facility_id = self.request.query_params.get('facilityId') or self.request.query_params.get('facility_id')
+		if facility_id is None:
+			raise ValidationError({'facilityId': 'facilityId query param is required.'})
+		return self._parse_facility_id(facility_id, 'facilityId must be a valid integer.')
+
+	def _get_facility_id_from_body(self):
+		facility_id = self.request.data.get('facilityId') or self.request.data.get('facility_id')
+		if facility_id is None:
+			raise ValidationError({'facilityId': 'facilityId is required in request body.'})
+		return self._parse_facility_id(facility_id, 'facilityId must be a valid integer.')
+
+	def _enforce_user_facility_access(self, facility_id):
+		user = self.request.user
+		if user.facility_id and user.facility_id != facility_id:
+			raise PermissionDenied('You cannot access records from another facility.')
+		if not user.facility_id and user.role != 'admin':
+			raise PermissionDenied('Your account is not assigned to a facility.')
+
+	def get_queryset(self):
+		facility_id = self._get_facility_id_from_query()
+		self._enforce_user_facility_access(facility_id)
+		queryset = self.model_class.objects.filter(facility_id=facility_id, is_active=True)
+		patient_id = self.request.query_params.get('patientId')
+		if patient_id:
+			queryset = queryset.filter(patient__patient_id=patient_id)
+		return queryset
+
+	def perform_create(self, serializer):
+		facility_id = self._get_facility_id_from_body()
+		self._enforce_user_facility_access(facility_id)
+		serializer.save(facility_id=facility_id)
+
+	def perform_update(self, serializer):
+		record = self.get_object()
+		facility_id = self._get_facility_id_from_query()
+		self._enforce_user_facility_access(facility_id)
+		if record.facility_id != facility_id:
+			raise PermissionDenied('You cannot modify records from another facility.')
+		serializer.save()
+
+	def perform_destroy(self, instance):
+		facility_id = self._get_facility_id_from_query()
+		self._enforce_user_facility_access(facility_id)
+		if instance.facility_id != facility_id:
+			raise PermissionDenied('You cannot delete records from another facility.')
+		instance.is_active = False
+		instance.save(update_fields=['is_active', 'updated_at'])
+
+
+class ProblemItemViewSet(_FacilityPatientScopedViewSet):
+	model_class = ProblemItem
+	serializer_class = ProblemItemSerializer
+	search_fields = ['display', 'code', 'notes']
+
+
+class AllergyItemViewSet(_FacilityPatientScopedViewSet):
+	model_class = AllergyItem
+	serializer_class = AllergyItemSerializer
+	search_fields = ['allergen_name', 'reaction']
+
+
+class CpoeOrderViewSet(_FacilityPatientScopedViewSet):
+	model_class = CpoeOrder
+	serializer_class = CpoeOrderSerializer
+	search_fields = ['title', 'order_type', 'instructions']

@@ -209,3 +209,68 @@ class EhrRecord(BaseModel):
 
 	def __str__(self):
 		return f"EHR {self.id} - {self.patient.patient_id} on {self.date}"
+
+
+class ProblemItem(BaseModel):
+	"""Coded problem list entry (KNHTS / ICD-11 / SNOMED CT)."""
+
+	facility = models.ForeignKey(Facility, on_delete=models.CASCADE, related_name='problem_items')
+	patient = models.ForeignKey(Patient, on_delete=models.CASCADE, related_name='problem_items')
+	code = models.CharField(max_length=50, blank=True, default='')
+	system = models.CharField(max_length=50, blank=True, default='KNHTS')
+	display = models.CharField(max_length=255)
+	status = models.CharField(max_length=20, default='Active')
+	onset_date = models.DateField(null=True, blank=True)
+	resolved_date = models.DateField(null=True, blank=True)
+	notes = models.TextField(blank=True)
+	recorded_by = models.CharField(max_length=150, blank=True)
+
+	class Meta:
+		ordering = ['-created_at']
+		indexes = [models.Index(fields=['facility', 'patient'])]
+
+	def __str__(self):
+		return f"Problem {self.id} - {self.patient.patient_id} - {self.display}"
+
+
+class AllergyItem(BaseModel):
+	"""Structured allergy registry entry used by the CDS drug-allergy cross-check."""
+
+	facility = models.ForeignKey(Facility, on_delete=models.CASCADE, related_name='allergy_items')
+	patient = models.ForeignKey(Patient, on_delete=models.CASCADE, related_name='allergy_items')
+	allergen_name = models.CharField(max_length=255)
+	allergen_code = models.CharField(max_length=50, blank=True, default='')
+	allergy_type = models.CharField(max_length=30, default='Medication')
+	severity = models.CharField(max_length=20, default='Moderate')
+	reaction = models.CharField(max_length=255, blank=True)
+	onset_date = models.DateField(null=True, blank=True)
+
+	class Meta:
+		ordering = ['-created_at']
+		indexes = [models.Index(fields=['facility', 'patient'])]
+
+	def __str__(self):
+		return f"Allergy {self.id} - {self.patient.patient_id} - {self.allergen_name}"
+
+
+class CpoeOrder(BaseModel):
+	"""Computerized Provider Order Entry across the 14 DHA order categories."""
+
+	facility = models.ForeignKey(Facility, on_delete=models.CASCADE, related_name='cpoe_orders')
+	patient = models.ForeignKey(Patient, on_delete=models.CASCADE, related_name='cpoe_orders')
+	order_type = models.CharField(max_length=30)
+	title = models.CharField(max_length=255)
+	code = models.CharField(max_length=50, blank=True, default='')
+	system = models.CharField(max_length=50, blank=True, default='')
+	instructions = models.TextField(blank=True)
+	ordered_by = models.CharField(max_length=150, blank=True)
+	order_date = models.DateField(auto_now_add=True)
+	status = models.CharField(max_length=20, default='Pending')
+	billing_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+
+	class Meta:
+		ordering = ['-created_at']
+		indexes = [models.Index(fields=['facility', 'patient'])]
+
+	def __str__(self):
+		return f"CPOE {self.id} - {self.patient.patient_id} - {self.order_type}"

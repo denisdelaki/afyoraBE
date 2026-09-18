@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import EhrRecord, OutpatientTicket, OutpatientTicketMovement, Patient
+from .models import AllergyItem, CpoeOrder, EhrRecord, OutpatientTicket, OutpatientTicketMovement, Patient, ProblemItem
 
 
 @admin.register(Patient)
@@ -41,3 +41,24 @@ class OutpatientTicketAdmin(admin.ModelAdmin):
 	search_fields = ('ticket_number', 'patient__patient_id', 'patient__first_name', 'patient__last_name')
 	readonly_fields = ('ticket_number', 'created_by', 'called_by', 'completed_at', 'created_at', 'updated_at')
 	inlines = (OutpatientTicketMovementInline,)
+
+
+@admin.register(ProblemItem)
+class ProblemItemAdmin(admin.ModelAdmin):
+	list_display = ('id', 'patient', 'facility', 'display', 'status', 'onset_date', 'is_active')
+	list_filter = ('facility', 'status', 'is_active')
+	search_fields = ('display', 'code', 'patient__patient_id')
+
+
+@admin.register(AllergyItem)
+class AllergyItemAdmin(admin.ModelAdmin):
+	list_display = ('id', 'patient', 'facility', 'allergen_name', 'severity', 'is_active')
+	list_filter = ('facility', 'severity', 'is_active')
+	search_fields = ('allergen_name', 'reaction', 'patient__patient_id')
+
+
+@admin.register(CpoeOrder)
+class CpoeOrderAdmin(admin.ModelAdmin):
+	list_display = ('id', 'patient', 'facility', 'order_type', 'title', 'status', 'order_date')
+	list_filter = ('facility', 'order_type', 'status')
+	search_fields = ('title', 'order_type', 'patient__patient_id')
