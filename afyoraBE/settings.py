@@ -112,7 +112,14 @@ INSTALLED_APPS = [
     'reports',                       # Analytics & reports
     'surveillance',                  # DHA public health & disease surveillance reporting
     'interoperability',              # Kenya HIE, FHIR/SDMX exchange, quality measures
+    'knhts',                         # Kenya National Health Terminology Service
+    'dha_connect',                   # DHA AfyaConnect eClaims & Preauth
 ]
+
+
+DHA_BASE_URL = config('DHA_BASE_URL', default='https://ilm-dev.dha.go.ke/uat-middleware')
+DHA_BEARER_TOKEN = config('DHA_BEARER_TOKEN', default='dha_uat_bearer_token_2026')
+
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',

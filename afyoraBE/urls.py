@@ -51,5 +51,6 @@ urlpatterns = [
     path('api/reports/', include('reports.urls')),
     path('api/surveillance/', include('surveillance.urls')),
     path('api/interoperability/', include('interoperability.urls')),
-    
+    path('api/knhts/', include('knhts.urls')),
+    path('api/dha/', include('dha_connect.urls')),
 ]
