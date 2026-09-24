@@ -379,7 +379,7 @@ USE_I18N = True
 USE_TZ = True
 
 # KNHTS FHIR terminology service — official Kenya National Health Terminology Service
-KNHTS_BASE_URL = config('KNHTS_BASE_URL', default='https://knhts.health.go.ke/fhir').strip().rstrip('/')
+KNHTS_BASE_URL = config('KNHTS_BASE_URL', default='https://fhir.dha.go.ke/terminology').strip().rstrip('/')
 KNHTS_SEARCH_PATH = config('KNHTS_SEARCH_PATH', default='ValueSet/$expand').strip()
 KNHTS_LOOKUP_PATH = config('KNHTS_LOOKUP_PATH', default='CodeSystem/$lookup').strip()
 KNHTS_API_KEY = config('KNHTS_API_KEY', default='').strip()
