@@ -386,6 +386,10 @@ KNHTS_API_KEY = config('KNHTS_API_KEY', default='').strip()
 KNHTS_AUTH_SCHEME = config('KNHTS_AUTH_SCHEME', default='Bearer').strip() or 'Bearer'
 KNHTS_API_KEY_HEADER = config('KNHTS_API_KEY_HEADER', default='X-API-Key').strip() or 'X-API-Key'
 KNHTS_TIMEOUT = config('KNHTS_TIMEOUT', default=10, cast=int)
+KNHTS_DRUG_VALUESET_URL = config(
+    'KNHTS_DRUG_VALUESET_URL',
+    default='https://fhir.dha.go.ke/terminology/ValueSet/generic-products-vs',
+).strip()
 
 # Secondary public FHIR server — used automatically when the primary KNHTS
 # server is unreachable (e.g. during development or before API key is issued).

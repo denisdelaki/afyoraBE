@@ -31,6 +31,9 @@ class Drug(BaseModel):
 	)
 	drug_id = models.CharField(max_length=20)
 	name = models.CharField(max_length=255)
+	drug_code = models.CharField(max_length=100, blank=True, default='')
+	drug_system = models.CharField(max_length=500, blank=True, default='')
+	is_coded = models.BooleanField(default=False)
 	category = models.ForeignKey(
 		'DrugCategory',
 		on_delete=models.SET_NULL,
@@ -49,6 +52,7 @@ class Drug(BaseModel):
 		unique_together = ('facility', 'drug_id')
 		indexes = [
 			models.Index(fields=['facility', 'drug_id']),
+			models.Index(fields=['facility', 'drug_code']),
 			models.Index(fields=['facility', 'name']),
 			models.Index(fields=['facility', 'category']),
 			models.Index(fields=['facility', 'is_active']),

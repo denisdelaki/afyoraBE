@@ -96,8 +96,11 @@ def _parse_concepts(payload):
 # Primary helpers (use settings.KNHTS_BASE_URL)
 # ---------------------------------------------------------------------------
 
-def search_concepts(search):
-    payload = _request(settings.KNHTS_SEARCH_PATH, {'filter': search, 'count': 20})
+def search_concepts(search, valueset_url=None):
+    params = {'filter': search, 'count': 20}
+    if valueset_url:
+        params['url'] = valueset_url
+    payload = _request(settings.KNHTS_SEARCH_PATH, params)
     return _parse_concepts(payload)
 
 

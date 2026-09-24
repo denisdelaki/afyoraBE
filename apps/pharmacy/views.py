@@ -18,6 +18,7 @@ from reportlab.lib.units import inch
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable
 
 from core.models import Facility, User
+from core.knhts import KnhtsServiceError, search_concepts
 from core.utils import check_module_permission, send_transactional_email
 from .models import Drug, DrugCategory, DrugPurchaseOrder, DrugPurchaseOrderItem, Prescription
 from .serializers import (
@@ -145,6 +146,29 @@ class DrugViewSet(FacilityScopedPharmacyViewSet):
 	filterset_fields = ['category', 'manufacturer']
 	search_fields = ['drug_id', 'name', 'category__name', 'manufacturer']
 	ordering = ['-created_at']
+
+	@action(detail=False, methods=['get'], url_path='terminology-search')
+	def terminology_search(self, request):
+		search = request.query_params.get('search', '').strip()
+		if len(search) < 2:
+			raise ValidationError({'search': 'Enter at least 2 characters.'})
+
+		try:
+			concepts = search_concepts(
+				search,
+				valueset_url=settings.KNHTS_DRUG_VALUESET_URL,
+			)
+		except KnhtsServiceError:
+			return Response(
+				{
+					'data': [],
+					'source': 'unavailable',
+					'detail': 'Drug terminology is temporarily unavailable. Enter an uncoded drug name to continue.',
+				},
+				status=status.HTTP_503_SERVICE_UNAVAILABLE,
+			)
+
+		return Response({'data': concepts, 'source': 'knhts'})
 
 	def get_queryset(self):
 		facility = self._get_target_facility()

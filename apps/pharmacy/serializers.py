@@ -47,6 +47,9 @@ class DrugCategorySerializer(serializers.ModelSerializer):
 class DrugSerializer(serializers.ModelSerializer):
     id = serializers.CharField(source='drug_id', read_only=True)
     facilityId = serializers.IntegerField(source='facility_id', read_only=True)
+    drugCode = serializers.CharField(source='drug_code', required=False, allow_blank=True)
+    drugSystem = serializers.CharField(source='drug_system', required=False, allow_blank=True)
+    isCoded = serializers.BooleanField(source='is_coded', read_only=True)
     categoryId = serializers.PrimaryKeyRelatedField(
         source='category',
         queryset=DrugCategory.objects.all(),
@@ -63,6 +66,9 @@ class DrugSerializer(serializers.ModelSerializer):
             'id',
             'facilityId',
             'name',
+            'drugCode',
+            'drugSystem',
+            'isCoded',
             'categoryId',
             'categoryName',
             'stock',
@@ -76,6 +82,14 @@ class DrugSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'facilityId', 'is_active', 'created_at', 'updated_at']
 
+    def to_internal_value(self, data):
+        normalized_data = data.copy()
+        if 'drugCode' not in normalized_data and 'code' in normalized_data:
+            normalized_data['drugCode'] = normalized_data['code']
+        if 'drugSystem' not in normalized_data and 'system' in normalized_data:
+            normalized_data['drugSystem'] = normalized_data['system']
+        return super().to_internal_value(normalized_data)
+
     def validate(self, attrs):
         attrs = super().validate(attrs)
 
@@ -87,6 +101,25 @@ class DrugSerializer(serializers.ModelSerializer):
 
         if min_stock < 0:
             raise serializers.ValidationError({'minStock': 'minStock cannot be negative.'})
+
+        existing_code = getattr(self.instance, 'drug_code', '')
+        existing_system = getattr(self.instance, 'drug_system', '')
+        code = attrs.get('drug_code', existing_code)
+        system = attrs.get('drug_system', existing_system)
+
+        if self.instance and 'name' in attrs and not {'drug_code', 'drug_system'} & attrs.keys():
+            code = ''
+            system = ''
+            attrs['drug_code'] = ''
+            attrs['drug_system'] = ''
+
+        if bool(code) != bool(system):
+            raise serializers.ValidationError({
+                'drugCode': 'drugCode and drugSystem must be provided together.',
+                'drugSystem': 'drugCode and drugSystem must be provided together.',
+            })
+
+        attrs['is_coded'] = bool(code and system)
 
         category = attrs.get('category')
         if category and category.facility_id != getattr(self.context['request'].user, 'facility_id', getattr(category, 'facility_id')):
