@@ -1,4 +1,5 @@
 import io
+import logging
 from datetime import date
 
 from rest_framework import status, viewsets
@@ -149,33 +150,60 @@ class DrugViewSet(FacilityScopedPharmacyViewSet):
 
 	@action(detail=False, methods=['get'], url_path='terminology-search')
 	def terminology_search(self, request):
+		logger = logging.getLogger(__name__)
+
 		search = request.query_params.get('search', '').strip()
 		if len(search) < 2:
 			raise ValidationError({'search': 'Enter at least 2 characters.'})
 
-		try:
-			concepts = search_concepts(
-				search,
-				valueset_url=settings.KNHTS_DRUG_VALUESET_URL,
-			)
-			return Response({'data': concepts, 'source': 'knhts'})
-		except KnhtsServiceError:
-			pass
+		drug_valueset_url = getattr(settings, 'KNHTS_DRUG_VALUESET_URL', '')
 
-		# Primary KNHTS server is unreachable/unauthorized — fall back to the
-		# secondary public FHIR server before giving up.
-		if settings.KNHTS_FALLBACK_URL:
+		# ── 1. Primary: DHA KNHTS server ────────────────────────────────────
+		if drug_valueset_url:
 			try:
-				concepts = search_from_url(
+				concepts = search_concepts(
 					search,
-					base_url=settings.KNHTS_FALLBACK_URL,
-					api_key=settings.KNHTS_FALLBACK_API_KEY,
-					timeout=settings.KNHTS_FALLBACK_TIMEOUT,
+					valueset_url=drug_valueset_url,
 				)
-				return Response({'data': concepts, 'source': 'knhts-fallback'})
-			except KnhtsServiceError:
-				pass
+				if concepts:
+					return Response({'data': concepts, 'source': 'knhts'})
+			except KnhtsServiceError as exc:
+				logger.warning('KNHTS primary (with drug valueset) unreachable for drug search "%s": %s', search, exc)
 
+		# Try primary DHA server without specific ValueSet (same parameterless expand as diagnosis search)
+		try:
+			concepts = search_concepts(search)
+			if concepts:
+				return Response({'data': concepts, 'source': 'knhts'})
+		except KnhtsServiceError as exc:
+			logger.warning('KNHTS primary (unconstrained) unreachable for drug search "%s": %s', search, exc)
+
+		# ── 2. Fallback: secondary public FHIR server ────────────────────────
+		fallback_url = getattr(settings, 'KNHTS_FALLBACK_URL', '')
+		if fallback_url:
+			fallback_api_key = getattr(settings, 'KNHTS_FALLBACK_API_KEY', '')
+			fallback_timeout = getattr(settings, 'KNHTS_FALLBACK_TIMEOUT', 15)
+
+			# Try with the DHA drug ValueSet first; if empty, try without a ValueSet URL.
+			vsets_to_try = [drug_valueset_url, ''] if drug_valueset_url else ['']
+			for vset in vsets_to_try:
+				try:
+					concepts = search_from_url(
+						search,
+						base_url=fallback_url,
+						api_key=fallback_api_key,
+						timeout=fallback_timeout,
+						valueset_url=vset,
+					)
+					if concepts:
+						return Response({'data': concepts, 'source': 'knhts-fallback'})
+				except KnhtsServiceError as exc:
+					logger.warning(
+						'KNHTS fallback (%s) unreachable for drug search "%s" (vset=%s): %s',
+						fallback_url, search, vset, exc,
+					)
+
+		# ── 3. Last resort: graceful uncoded fallback ─────────────────────────
 		return Response(
 			{
 				'data': [],
