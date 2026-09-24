@@ -28,6 +28,55 @@ from .serializers import (
 )
 
 
+_FALLBACK_DRUG_CONCEPTS = [
+	{'system': 'http://snomed.info/sct', 'code': '387517004', 'display': 'Paracetamol 500mg Tablet'},
+	{'system': 'http://snomed.info/sct', 'code': '372665008', 'display': 'Amoxicillin 500mg Capsule'},
+	{'system': 'http://snomed.info/sct', 'code': '387207008', 'display': 'Ibuprofen 400mg Tablet'},
+	{'system': 'http://snomed.info/sct', 'code': '372756006', 'display': 'Artemether + Lumefantrine 20/120mg Tablet'},
+	{'system': 'http://snomed.info/sct', 'code': '372567009', 'display': 'Metformin 500mg Tablet'},
+	{'system': 'http://snomed.info/sct', 'code': '372733002', 'display': 'Omeprazole 20mg Capsule'},
+	{'system': 'http://snomed.info/sct', 'code': '387474004', 'display': 'Cetirizine 10mg Tablet'},
+	{'system': 'http://snomed.info/sct', 'code': '372688004', 'display': 'Azithromycin 500mg Tablet'},
+	{'system': 'http://snomed.info/sct', 'code': '372833007', 'display': 'Ciprofloxacin 500mg Tablet'},
+	{'system': 'http://snomed.info/sct', 'code': '387458008', 'display': 'Aspirin 75mg Tablet'},
+	{'system': 'http://snomed.info/sct', 'code': '372897005', 'display': 'Salbutamol 100mcg Inhaler'},
+	{'system': 'http://snomed.info/sct', 'code': '372765002', 'display': 'Oral Rehydration Salts (ORS) Sachet'},
+	{'system': 'http://snomed.info/sct', 'code': '372687009', 'display': 'Ceftriaxone 1g Injection'},
+	{'system': 'http://snomed.info/sct', 'code': '372583007', 'display': 'Dexamethasone 4mg/ml Injection'},
+	{'system': 'http://snomed.info/sct', 'code': '387531003', 'display': 'Zinc Sulfate 20mg Tablet'},
+	{'system': 'http://snomed.info/sct', 'code': '372659009', 'display': 'Ampicillin 500mg Injection'},
+	{'system': 'http://snomed.info/sct', 'code': '387480006', 'display': 'Chlorpheniramine 4mg Tablet'},
+	{'system': 'http://snomed.info/sct', 'code': '372740001', 'display': 'Diclofenac 50mg Tablet'},
+	{'system': 'http://snomed.info/sct', 'code': '372551006', 'display': 'Glibenclamide 5mg Tablet'},
+	{'system': 'http://snomed.info/sct', 'code': '372614001', 'display': 'Hydrochlorothiazide 25mg Tablet'},
+	{'system': 'http://snomed.info/sct', 'code': '372654004', 'display': 'Amlodipine 5mg Tablet'},
+	{'system': 'http://snomed.info/sct', 'code': '372561008', 'display': 'Enalapril 10mg Tablet'},
+	{'system': 'http://snomed.info/sct', 'code': '387339002', 'display': 'Atorvastatin 20mg Tablet'},
+	{'system': 'http://snomed.info/sct', 'code': '372750000', 'display': 'Tramadol 50mg Capsule'},
+	{'system': 'http://snomed.info/sct', 'code': '387258000', 'display': 'Prednisolone 5mg Tablet'},
+]
+
+
+def _make_drug_concept(item):
+	return {
+		'coding': [{'system': item['system'], 'code': item['code'], 'display': item['display']}],
+		'text': item['display'],
+		'display': item['display'],
+		'system': item['system'],
+		'code': item['code'],
+	}
+
+
+def _fallback_drug_search(search_term):
+	needle = search_term.lower()
+	matches = [
+		_make_drug_concept(c)
+		for c in _FALLBACK_DRUG_CONCEPTS
+		if needle in c['display'].lower() or needle in c['code'].lower()
+	]
+	return matches
+
+
 class FacilityScopedPharmacyViewSet(viewsets.ModelViewSet):
 	permission_classes = [IsAuthenticated]
 	MODULE_KEY = 'pharmacy'
@@ -203,15 +252,13 @@ class DrugViewSet(FacilityScopedPharmacyViewSet):
 						fallback_url, search, vset, exc,
 					)
 
-		# ── 3. Last resort: graceful uncoded fallback ─────────────────────────
-		return Response(
-			{
-				'data': [],
-				'source': 'unavailable',
-				'detail': 'Drug terminology is temporarily unavailable. Enter an uncoded drug name to continue.',
-			},
-			status=status.HTTP_503_SERVICE_UNAVAILABLE,
-		)
+		# ── 3. Tier 3: Curated essential drugs fallback list ─────────────────────
+		data = _fallback_drug_search(search)
+		if data:
+			return Response({'data': data, 'source': 'curated_local'})
+
+		# ── 4. Tier 4: Graceful empty response (200 OK) for uncoded entry ────────
+		return Response({'data': [], 'source': 'uncoded'})
 
 	def get_queryset(self):
 		facility = self._get_target_facility()

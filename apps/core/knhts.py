@@ -8,7 +8,10 @@ class KnhtsServiceError(Exception):
 
 def _headers(api_key=None, auth_scheme=None, api_key_header=None):
     """Build HTTP headers for a FHIR request."""
-    headers = {'Accept': 'application/fhir+json, application/json'}
+    headers = {
+        'Accept': 'application/fhir+json, application/json',
+        'User-Agent': 'AfyoraHMS/1.0 (Kenya Health Management System; +https://afyora.health)',
+    }
     key = api_key if api_key is not None else settings.KNHTS_API_KEY
     if key:
         scheme = auth_scheme or settings.KNHTS_AUTH_SCHEME
