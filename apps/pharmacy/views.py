@@ -18,7 +18,7 @@ from reportlab.lib.units import inch
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable
 
 from core.models import Facility, User
-from core.knhts import KnhtsServiceError, search_concepts
+from core.knhts import KnhtsServiceError, search_concepts, search_from_url
 from core.utils import check_module_permission, send_transactional_email
 from .models import Drug, DrugCategory, DrugPurchaseOrder, DrugPurchaseOrderItem, Prescription
 from .serializers import (
@@ -158,17 +158,32 @@ class DrugViewSet(FacilityScopedPharmacyViewSet):
 				search,
 				valueset_url=settings.KNHTS_DRUG_VALUESET_URL,
 			)
+			return Response({'data': concepts, 'source': 'knhts'})
 		except KnhtsServiceError:
-			return Response(
-				{
-					'data': [],
-					'source': 'unavailable',
-					'detail': 'Drug terminology is temporarily unavailable. Enter an uncoded drug name to continue.',
-				},
-				status=status.HTTP_503_SERVICE_UNAVAILABLE,
-			)
+			pass
 
-		return Response({'data': concepts, 'source': 'knhts'})
+		# Primary KNHTS server is unreachable/unauthorized — fall back to the
+		# secondary public FHIR server before giving up.
+		if settings.KNHTS_FALLBACK_URL:
+			try:
+				concepts = search_from_url(
+					search,
+					base_url=settings.KNHTS_FALLBACK_URL,
+					api_key=settings.KNHTS_FALLBACK_API_KEY,
+					timeout=settings.KNHTS_FALLBACK_TIMEOUT,
+				)
+				return Response({'data': concepts, 'source': 'knhts-fallback'})
+			except KnhtsServiceError:
+				pass
+
+		return Response(
+			{
+				'data': [],
+				'source': 'unavailable',
+				'detail': 'Drug terminology is temporarily unavailable. Enter an uncoded drug name to continue.',
+			},
+			status=status.HTTP_503_SERVICE_UNAVAILABLE,
+		)
 
 	def get_queryset(self):
 		facility = self._get_target_facility()
