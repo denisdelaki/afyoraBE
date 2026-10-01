@@ -4,6 +4,7 @@ from django.db import models
 from django.db.models import Sum
 from core.models import Facility
 from patients.models import Patient
+from .fields import EncryptedTextField
 
 
 class Invoice(models.Model):
@@ -84,6 +85,13 @@ class Payment(models.Model):
 
     id = models.CharField(primary_key=True, max_length=20, editable=False)
     invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE, related_name='payments')
+    mpesa_transaction = models.OneToOneField(
+        'MpesaTransaction',
+        on_delete=models.SET_NULL,
+        related_name='payment',
+        null=True,
+        blank=True,
+    )
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     method = models.CharField(max_length=50)
     date = models.DateField(auto_now_add=True)
@@ -119,13 +127,9 @@ class MpesaConfig(models.Model):
         Facility, on_delete=models.CASCADE, related_name='mpesa_config'
     )
     shortcode = models.CharField(max_length=20, default='')
-    passkey = models.CharField(
-        max_length=255,
-        blank=True,
-        default='bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919'
-    )
+    passkey = EncryptedTextField(max_length=1024, blank=True, default='')
     consumer_key = models.CharField(max_length=255, blank=True, default='')
-    consumer_secret = models.CharField(max_length=255, blank=True, default='')
+    consumer_secret = EncryptedTextField(max_length=1024, blank=True, default='')
     environment = models.CharField(max_length=20, choices=ENVIRONMENT_CHOICES, default='sandbox')
     transaction_type = models.CharField(
         max_length=50, choices=TRANSACTION_TYPE_CHOICES, default='CustomerPayBillOnline'

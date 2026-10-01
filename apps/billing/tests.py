@@ -323,7 +323,9 @@ class BillingAPITests(TestCase):
             "shortcode": "600000",
             "environment": "sandbox",
             "transaction_type": "CustomerBuyGoodsOnline",
-            "passkey": "new_test_passkey_123"
+            "passkey": "new_test_passkey_123",
+            "consumer_key": "facility_consumer_key",
+            "consumer_secret": "facility_consumer_secret",
         }
         post_res = self.client.post(
             f"/api/billing/mpesa-config/?facilityId={self.facility.id}",
@@ -334,6 +336,65 @@ class BillingAPITests(TestCase):
         self.assertTrue(post_res.data['success'])
         self.assertEqual(post_res.data['data']['shortcode'], "600000")
         self.assertEqual(post_res.data['data']['transaction_type'], "CustomerBuyGoodsOnline")
+        self.assertNotIn('passkey', post_res.data['data'])
+        self.assertNotIn('consumer_secret', post_res.data['data'])
+
+        from django.db import connection
+        from .models import MpesaConfig
+
+        config = MpesaConfig.objects.get(facility=self.facility)
+        self.assertEqual(config.passkey, "new_test_passkey_123")
+        self.assertEqual(config.consumer_secret, "facility_consumer_secret")
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                'SELECT passkey, consumer_secret FROM billing_mpesaconfig WHERE id = %s',
+                [config.id],
+            )
+            stored_passkey, stored_consumer_secret = cursor.fetchone()
+
+        self.assertTrue(stored_passkey.startswith('enc::'))
+        self.assertTrue(stored_consumer_secret.startswith('enc::'))
+        self.assertNotIn("new_test_passkey_123", stored_passkey)
+        self.assertNotIn("facility_consumer_secret", stored_consumer_secret)
+
+    def test_mpesa_config_requires_facility_credentials_when_active(self):
+        response = self.client.post(
+            f"/api/billing/mpesa-config/?facilityId={self.facility.id}",
+            {"shortcode": "123456", "transaction_type": "CustomerPayBillOnline"},
+            format='json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('consumer_key', response.data)
+        self.assertIn('consumer_secret', response.data)
+
+    def test_mpesa_config_cannot_be_changed_for_another_facility(self):
+        other_facility = Facility.objects.create(
+            name="Other Facility",
+            facility_type="clinic",
+            registration_number="REG-BILL-OTHER",
+            email="other@example.com",
+            phone="+254700000001"
+        )
+
+        response = self.client.get(f"/api/billing/mpesa-config/?facilityId={other_facility.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_facility_transaction_type_is_not_overridden_by_shortcode(self):
+        from .mpesa_service import resolve_transaction_type
+
+        transaction_type = resolve_transaction_type("CustomerBuyGoodsOnline")
+
+        self.assertEqual(transaction_type, "CustomerBuyGoodsOnline")
+
+    def test_paybill_transaction_type_is_preserved(self):
+        from .mpesa_service import resolve_transaction_type
+
+        transaction_type = resolve_transaction_type("CustomerPayBillOnline")
+
+        self.assertEqual(transaction_type, "CustomerPayBillOnline")
 
 
     def test_mpesa_callback_and_query(self):
@@ -387,9 +448,72 @@ class BillingAPITests(TestCase):
         invoice.refresh_from_db()
         self.assertEqual(Payment.objects.filter(invoice=invoice, method="M-Pesa").count(), 1)
 
+        # Repeated delivery of the same callback must not create another payment.
+        self.client.post("/api/billing/mpesa/callback/", callback_payload, format='json')
+        self.assertEqual(Payment.objects.filter(invoice=invoice, method="M-Pesa").count(), 1)
+
+        # A separate successful transaction for the same amount is a real payment.
+        second_checkout_id = "ws_CO_30082026_TEST_67890"
+        MpesaTransaction.objects.create(
+            invoice=invoice,
+            facility=self.facility,
+            phone_number="254712345678",
+            amount=1500.00,
+            checkout_request_id=second_checkout_id,
+            merchant_request_id="67890-12345",
+            status="Pending"
+        )
+        second_callback_payload = {
+            "Body": {"stkCallback": {
+                "MerchantRequestID": "67890-12345",
+                "CheckoutRequestID": second_checkout_id,
+                "ResultCode": 0,
+                "ResultDesc": "The service request is processed successfully.",
+                "CallbackMetadata": {"Item": [
+                    {"Name": "MpesaReceiptNumber", "Value": "QGR11223344"}
+                ]}
+            }}
+        }
+        self.client.post("/api/billing/mpesa/callback/", second_callback_payload, format='json')
+        self.assertEqual(Payment.objects.filter(invoice=invoice, method="M-Pesa").count(), 2)
+
         # Test STK Status Query Endpoint
         query_res = self.client.get(f"/api/billing/mpesa/query/?checkoutRequestId={checkout_req_id}")
         self.assertEqual(query_res.status_code, status.HTTP_200_OK)
         self.assertTrue(query_res.data['success'])
         self.assertEqual(query_res.data['data']['status'], "Completed")
+
+    def test_stk_status_query_reconciles_payment_once(self):
+        from unittest.mock import patch
+        from .models import MpesaTransaction
+
+        invoice = Invoice.objects.create(
+            facility=self.facility,
+            patient=self.patient,
+            status="Pending"
+        )
+        transaction = MpesaTransaction.objects.create(
+            invoice=invoice,
+            facility=self.facility,
+            phone_number="254712345678",
+            amount=750.00,
+            checkout_request_id="ws_CO_QUERY_RECONCILE_123",
+            merchant_request_id="QUERY-123",
+            status="Pending"
+        )
+
+        with patch(
+            'billing.mpesa_service.query_stk_status_from_daraja',
+            return_value={'ResultCode': '0', 'ResultDesc': 'Processed successfully'},
+        ):
+            first_response = self.client.get(
+                f"/api/billing/mpesa/query/?checkoutRequestId={transaction.checkout_request_id}"
+            )
+            second_response = self.client.get(
+                f"/api/billing/mpesa/query/?checkoutRequestId={transaction.checkout_request_id}"
+            )
+
+        self.assertEqual(first_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(second_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(Payment.objects.filter(mpesa_transaction=transaction).count(), 1)
 

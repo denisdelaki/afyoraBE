@@ -13,13 +13,13 @@ DEFAULT_SANDBOX_SHORTCODE = (
     os.getenv('MPESA_SHORTCODE') or os.getenv('SYSTEM_MPESA_SHORTCODE') or getattr(settings, 'MPESA_SHORTCODE', '')
 )
 DEFAULT_SANDBOX_PASSKEY = (
-    os.getenv('MPESA_PASSKEY') or os.getenv('SYSTEM_MPESA_PASSKEY') or getattr(settings, 'MPESA_PASSKEY', 'bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919')
+    os.getenv('MPESA_PASSKEY') or os.getenv('SYSTEM_MPESA_PASSKEY') or getattr(settings, 'MPESA_PASSKEY', '')
 )
 DEFAULT_SANDBOX_CONSUMER_KEY = (
-    os.getenv('MPESA_CONSUMER_KEY') or os.getenv('MPESA_SANDBOX_CONSUMER_KEY') or os.getenv('SYSTEM_MPESA_CONSUMER_KEY') or getattr(settings, 'MPESA_SANDBOX_CONSUMER_KEY', 'bV57BHXJLAh3wd74dP6qMM3qLJpOsvrJEugUGyWKmdeZkuub')
+    os.getenv('MPESA_CONSUMER_KEY') or os.getenv('MPESA_SANDBOX_CONSUMER_KEY') or os.getenv('SYSTEM_MPESA_CONSUMER_KEY') or getattr(settings, 'MPESA_SANDBOX_CONSUMER_KEY', '')
 )
 DEFAULT_SANDBOX_CONSUMER_SECRET = (
-    os.getenv('MPESA_CONSUMER_SECRET') or os.getenv('MPESA_SANDBOX_CONSUMER_SECRET') or os.getenv('SYSTEM_MPESA_CONSUMER_SECRET') or getattr(settings, 'MPESA_SANDBOX_CONSUMER_SECRET', 'W5vtiUaDHGkeuHtzMMXZBz8U0Cm1y8JyvFlYfbuwYqcnGRM16TBvP8352LJ461NM')
+    os.getenv('MPESA_CONSUMER_SECRET') or os.getenv('MPESA_SANDBOX_CONSUMER_SECRET') or os.getenv('SYSTEM_MPESA_CONSUMER_SECRET') or getattr(settings, 'MPESA_SANDBOX_CONSUMER_SECRET', '')
 )
 
 DEFAULT_SANDBOX_ENVIRONMENT = (
@@ -58,10 +58,10 @@ def get_facility_mpesa_config(facility):
     config, _ = MpesaConfig.objects.get_or_create(
         facility=facility,
         defaults={
-            'shortcode': DEFAULT_SANDBOX_SHORTCODE,
-            'passkey': DEFAULT_SANDBOX_PASSKEY,
-            'consumer_key': DEFAULT_SANDBOX_CONSUMER_KEY,
-            'consumer_secret': DEFAULT_SANDBOX_CONSUMER_SECRET,
+            'shortcode': '',
+            'passkey': '',
+            'consumer_key': '',
+            'consumer_secret': '',
             'environment': 'sandbox',
             'transaction_type': 'CustomerPayBillOnline',
             'account_reference_prefix': 'AfyoraHMS',
@@ -76,7 +76,20 @@ def get_base_url(environment: str) -> str:
     return 'https://sandbox.safaricom.co.ke'
 
 
-def get_access_token(consumer_key: str, consumer_secret: str, environment: str = 'sandbox') -> str:
+def resolve_transaction_type(transaction_type: str) -> str:
+    clean_transaction_type = (transaction_type or 'CustomerPayBillOnline').strip()
+
+    if clean_transaction_type in ('BuyGoodsOnline', 'CustomerBuyGoodsOnline'):
+        return 'CustomerBuyGoodsOnline'
+    return 'CustomerPayBillOnline'
+
+
+def get_access_token(
+    consumer_key: str,
+    consumer_secret: str,
+    environment: str = 'sandbox',
+    allow_default_fallback: bool = True,
+) -> str:
     """
     Fetches an OAuth access token from Safaricom Daraja API.
     """
@@ -95,7 +108,7 @@ def get_access_token(consumer_key: str, consumer_secret: str, environment: str =
         return token
     except Exception as e:
         logger.error(f"Failed to fetch M-Pesa Access Token with configured keys: {e}")
-        if environment == 'sandbox' and ck != DEFAULT_SANDBOX_CONSUMER_KEY:
+        if allow_default_fallback and environment == 'sandbox' and ck != DEFAULT_SANDBOX_CONSUMER_KEY:
             logger.info("Attempting fallback to default Safaricom sandbox consumer keys...")
             try:
                 response = requests.get(url, auth=(DEFAULT_SANDBOX_CONSUMER_KEY, DEFAULT_SANDBOX_CONSUMER_SECRET), timeout=15)
@@ -118,20 +131,29 @@ def send_stk_push(config: MpesaConfig, phone_number: str, amount: float, account
     if not formatted_phone or len(formatted_phone) != 12:
         raise ValueError(f"Invalid M-Pesa phone number format: '{phone_number}'. Expected 254XXXXXXXXX.")
 
+    if config:
+        if not config.is_active:
+            return {'success': False, 'error': 'M-Pesa is disabled for this facility.'}
+        required_fields = ('shortcode', 'passkey', 'consumer_key', 'consumer_secret')
+        missing_fields = [field for field in required_fields if not (getattr(config, field, '') or '').strip()]
+        if missing_fields:
+            return {
+                'success': False,
+                'error': f"Complete the facility M-Pesa configuration. Missing: {', '.join(missing_fields)}."
+            }
+
     shortcode = (config.shortcode if config else DEFAULT_SANDBOX_SHORTCODE).strip()
     passkey = (config.passkey if config else DEFAULT_SANDBOX_PASSKEY).strip()
     env = (config.environment if config else DEFAULT_SANDBOX_ENVIRONMENT).strip()
     raw_txn_type = (config.transaction_type if config else 'CustomerPayBillOnline').strip()
-    if shortcode == DEFAULT_SANDBOX_SHORTCODE or shortcode == '':
-        txn_type = 'CustomerPayBillOnline'
-    elif raw_txn_type in ['BuyGoodsOnline', 'CustomerBuyGoodsOnline']:
-        txn_type = 'CustomerBuyGoodsOnline'
-    else:
-        txn_type = 'CustomerPayBillOnline'
+    txn_type = resolve_transaction_type(raw_txn_type)
 
     ck = config.consumer_key if config else DEFAULT_SANDBOX_CONSUMER_KEY
     cs = config.consumer_secret if config else DEFAULT_SANDBOX_CONSUMER_SECRET
-    token = get_access_token(ck, cs, env)
+    try:
+        token = get_access_token(ck, cs, env, allow_default_fallback=config is None)
+    except Exception as exc:
+        return {'success': False, 'error': str(exc)}
 
 
 
@@ -215,7 +237,11 @@ def query_stk_status_from_daraja(config: MpesaConfig, checkout_request_id: str):
 
     ck = config.consumer_key if config else DEFAULT_SANDBOX_CONSUMER_KEY
     cs = config.consumer_secret if config else DEFAULT_SANDBOX_CONSUMER_SECRET
-    token = get_access_token(ck, cs, env)
+    try:
+        token = get_access_token(ck, cs, env, allow_default_fallback=config is None)
+    except Exception as exc:
+        logger.error(f"Unable to authenticate STK status query: {exc}")
+        return None
     endpoint = f"{get_base_url(env)}/mpesa/stkpushquery/v1/query"
 
 

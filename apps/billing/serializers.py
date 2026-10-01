@@ -204,9 +204,27 @@ class MpesaConfigSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'facilityId', 'created_at', 'updated_at']
         extra_kwargs = {
-            'passkey': {'write_only': False},
-            'consumer_secret': {'write_only': False},
+            'passkey': {'write_only': True},
+            'consumer_secret': {'write_only': True},
         }
+
+    def validate(self, attrs):
+        is_active = attrs.get('is_active', getattr(self.instance, 'is_active', True))
+        if not is_active:
+            return attrs
+
+        required_fields = ('shortcode', 'passkey', 'consumer_key', 'consumer_secret')
+        missing_fields = []
+        for field in required_fields:
+            value = attrs.get(field, getattr(self.instance, field, '') if self.instance else '')
+            if not (value or '').strip():
+                missing_fields.append(field)
+
+        if missing_fields:
+            raise serializers.ValidationError({
+                field: 'This field is required when M-Pesa is active.' for field in missing_fields
+            })
+        return attrs
 
 
 class MpesaSTKPushRequestSerializer(serializers.Serializer):

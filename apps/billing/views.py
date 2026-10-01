@@ -2,6 +2,7 @@
 from rest_framework import viewsets, status
 from rest_framework.views import APIView
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from django.db.models import Q
@@ -21,6 +22,27 @@ def parse_facility_id(value):
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def reconcile_mpesa_invoice_payment(mpesa_transaction):
+    if not mpesa_transaction.invoice_id:
+        return None
+
+    payment, created = Payment.objects.get_or_create(
+        mpesa_transaction=mpesa_transaction,
+        defaults={
+            'invoice': mpesa_transaction.invoice,
+            'amount': mpesa_transaction.amount,
+            'method': 'M-Pesa',
+            'status': 'Completed',
+        },
+    )
+    if created:
+        invoice = mpesa_transaction.invoice
+        invoice.payment_method = 'M-Pesa'
+        invoice.save(update_fields=['payment_method'])
+        invoice.recalc_status()
+    return payment
 
 
 def _resolve_patient_from_request(request):
@@ -361,10 +383,13 @@ class MpesaConfigView(APIView):
             or request.data.get('facility_id')
         )
         parsed = parse_facility_id(facility_val)
+        user_facility_id = getattr(request.user, 'facility_id', None)
+        if parsed and request.user.role != 'admin' and parsed != user_facility_id:
+            raise PermissionDenied('You can only manage M-Pesa settings for your own facility.')
         if parsed:
             return Facility.objects.filter(id=parsed).first()
-        if request.user and getattr(request.user, 'facility_id', None):
-            return Facility.objects.filter(id=request.user.facility_id).first()
+        if user_facility_id:
+            return Facility.objects.filter(id=user_facility_id).first()
         return Facility.objects.first()
 
     def get(self, request):
@@ -425,7 +450,10 @@ class MpesaSTKPushView(APIView):
         invoice_id = serializer.validated_data['invoiceId']
         phone_number = serializer.validated_data['phoneNumber']
 
-        invoice = Invoice.objects.filter(id=invoice_id).first()
+        invoices = Invoice.objects.filter(id=invoice_id)
+        if request.user.role != 'admin':
+            invoices = invoices.filter(facility_id=getattr(request.user, 'facility_id', None))
+        invoice = invoices.first()
         if not invoice:
             return Response({'success': False, 'error': f"Invoice '{invoice_id}' not found."}, status=status.HTTP_404_NOT_FOUND)
 
@@ -497,6 +525,7 @@ class MpesaCallbackView(APIView):
 
     def post(self, request):
         from .models import MpesaTransaction, Payment
+        from django.db import transaction
         from django.utils import timezone
         import logging
 
@@ -512,53 +541,42 @@ class MpesaCallbackView(APIView):
             if not checkout_req_id:
                 return Response({'ResultCode': 0, 'ResultDesc': 'Accepted'})
 
-            txn = MpesaTransaction.objects.filter(checkout_request_id=checkout_req_id).first()
-            if not txn:
-                logger.warning(f"M-Pesa Callback: Transaction '{checkout_req_id}' not found.")
-                return Response({'ResultCode': 0, 'ResultDesc': 'Accepted'})
+            with transaction.atomic():
+                txn = MpesaTransaction.objects.select_for_update().filter(
+                    checkout_request_id=checkout_req_id
+                ).first()
+                if not txn:
+                    logger.warning(f"M-Pesa Callback: Transaction '{checkout_req_id}' not found.")
+                    return Response({'ResultCode': 0, 'ResultDesc': 'Accepted'})
 
-            txn.result_code = result_code
-            txn.result_desc = result_desc
+                txn.result_code = result_code
+                txn.result_desc = result_desc
 
-            if result_code == 0:
-                txn.status = 'Completed'
-                meta_items = body.get('CallbackMetadata', {}).get('Item', [])
-                receipt = ""
-                for item in meta_items:
-                    if item.get('Name') == 'MpesaReceiptNumber':
-                        receipt = item.get('Value', '')
-                        txn.mpesa_receipt_number = receipt
+                if result_code == 0:
+                    was_completed = txn.status == 'Completed'
+                    txn.status = 'Completed'
+                    meta_items = body.get('CallbackMetadata', {}).get('Item', [])
+                    receipt = ""
+                    for item in meta_items:
+                        if item.get('Name') == 'MpesaReceiptNumber':
+                            receipt = item.get('Value', '')
+                            txn.mpesa_receipt_number = receipt
 
-                txn.transaction_date = timezone.now()
-                txn.save()
+                    txn.transaction_date = timezone.now()
+                    txn.save()
 
-                if txn.invoice:
-                    # Automatically create completed Payment for Invoice
-                    invoice = txn.invoice
-                    payment_exists = Payment.objects.filter(
-                        invoice=invoice, amount=txn.amount, method='M-Pesa'
-                    ).exists()
-
-                    if not payment_exists:
-                        Payment.objects.create(
-                            invoice=invoice,
-                            amount=txn.amount,
-                            method='M-Pesa',
-                            status='Completed'
-                        )
-                        invoice.payment_method = 'M-Pesa'
-                        invoice.save(update_fields=['payment_method'])
-                        invoice.recalc_status()
-                elif txn.subscription_payment:
-                    from .mpesa_service import complete_subscription_payment
-                    complete_subscription_payment(txn.subscription_payment, receipt)
-            else:
-                txn.status = 'Cancelled' if result_code == 1032 else 'Failed'
-                txn.save()
-                if txn.subscription_payment:
-                    txn.subscription_payment.status = 'failed'
-                    txn.subscription_payment.notes = f"Payment failed: {result_desc}"
-                    txn.subscription_payment.save()
+                    if txn.invoice:
+                        reconcile_mpesa_invoice_payment(txn)
+                    elif txn.subscription_payment and not was_completed:
+                        from .mpesa_service import complete_subscription_payment
+                        complete_subscription_payment(txn.subscription_payment, receipt)
+                else:
+                    txn.status = 'Cancelled' if result_code == 1032 else 'Failed'
+                    txn.save()
+                    if txn.subscription_payment:
+                        txn.subscription_payment.status = 'failed'
+                        txn.subscription_payment.notes = f"Payment failed: {result_desc}"
+                        txn.subscription_payment.save()
 
         except Exception as e:
             logger.error(f"Error handling M-Pesa Callback: {e}")
@@ -585,7 +603,10 @@ class MpesaSTKQueryView(APIView):
         if not checkout_req_id:
             return Response({'success': False, 'error': 'checkoutRequestId is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        txn = MpesaTransaction.objects.filter(checkout_request_id=checkout_req_id).first()
+        transactions = MpesaTransaction.objects.filter(checkout_request_id=checkout_req_id)
+        if request.user.role != 'admin':
+            transactions = transactions.filter(facility_id=getattr(request.user, 'facility_id', None))
+        txn = transactions.first()
         if not txn:
             return Response({'success': False, 'error': 'Transaction not found.'}, status=status.HTTP_404_NOT_FOUND)
 
@@ -609,31 +630,22 @@ class MpesaSTKQueryView(APIView):
             res_desc = daraja_res.get('ResultDesc', '')
 
             if res_code == '0':
-                txn.status = 'Completed'
-                txn.result_code = 0
-                txn.result_desc = res_desc
-                txn.transaction_date = timezone.now()
-                txn.save()
+                from django.db import transaction
 
-                if txn.invoice:
-                    invoice = txn.invoice
-                    payment_exists = Payment.objects.filter(
-                        invoice=invoice, amount=txn.amount, method='M-Pesa'
-                    ).exists()
+                with transaction.atomic():
+                    txn = MpesaTransaction.objects.select_for_update().get(pk=txn.pk)
+                    was_completed = txn.status == 'Completed'
+                    txn.status = 'Completed'
+                    txn.result_code = 0
+                    txn.result_desc = res_desc
+                    txn.transaction_date = timezone.now()
+                    txn.save()
 
-                    if not payment_exists:
-                        Payment.objects.create(
-                            invoice=invoice,
-                            amount=txn.amount,
-                            method='M-Pesa',
-                            status='Completed'
-                        )
-                        invoice.payment_method = 'M-Pesa'
-                        invoice.save(update_fields=['payment_method'])
-                        invoice.recalc_status()
-                elif txn.subscription_payment:
-                    from .mpesa_service import complete_subscription_payment
-                    complete_subscription_payment(txn.subscription_payment)
+                    if txn.invoice:
+                        reconcile_mpesa_invoice_payment(txn)
+                    elif txn.subscription_payment and not was_completed:
+                        from .mpesa_service import complete_subscription_payment
+                        complete_subscription_payment(txn.subscription_payment)
             elif res_code in ['1032', '1037', '1', '2001']:
                 txn.status = 'Cancelled' if res_code == '1032' else 'Failed'
                 txn.result_code = int(res_code) if res_code.isdigit() else 1

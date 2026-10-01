@@ -13,6 +13,8 @@ services:
         value: 3.14
       - key: SECRET_KEY
         generateValue: true
+      - key: MPESA_CREDENTIAL_ENCRYPTION_KEY
+        generateValue: true
       - key: ENVIRONMENT
         value: production
       # Supabase is the application primary. Supply its direct PostgreSQL URL

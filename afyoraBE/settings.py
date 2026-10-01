@@ -38,6 +38,20 @@ if not _configured_secret_key:
     _configured_secret_key = get_random_secret_key()
 SECRET_KEY = _configured_secret_key
 
+DEVELOPMENT_MPESA_CREDENTIAL_ENCRYPTION_KEY = 'afyora-development-mpesa-credentials'
+MPESA_CREDENTIAL_ENCRYPTION_KEY = config(
+    'MPESA_CREDENTIAL_ENCRYPTION_KEY',
+    default=(
+        DEVELOPMENT_MPESA_CREDENTIAL_ENCRYPTION_KEY
+        if ENVIRONMENT.lower() != 'production'
+        else ''
+    ),
+).strip()
+if not MPESA_CREDENTIAL_ENCRYPTION_KEY:
+    raise ImproperlyConfigured(
+        'MPESA_CREDENTIAL_ENCRYPTION_KEY must be configured in production.'
+    )
+
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=ENVIRONMENT == 'development', cast=bool)
 
