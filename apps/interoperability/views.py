@@ -1,7 +1,10 @@
+import logging
 import random
 
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.views import View
 from rest_framework import mixins, status, viewsets
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -11,6 +14,7 @@ from rest_framework.views import APIView
 from core.models import Facility
 from core.utils import check_module_permission
 from .models import HieConnection, HieSyncLog, QualityMeasure, TerminologyStandard
+from .services.kmhfr import KMHFRService
 from .serializers import (
     MATURITY_LEVEL_DEFINITIONS,
     QUALITY_MEASURE_SEED,
@@ -185,3 +189,86 @@ class HieSyncLogViewSet(_InteroperabilityAuthMixin, mixins.ListModelMixin, mixin
     def perform_create(self, serializer):
         facility_id = self._get_facility_id(self.request.data)
         serializer.save(facility_id=facility_id)
+
+
+logger = logging.getLogger(__name__)
+
+
+class FacilitySearchView(View):
+    """
+    Proxy View to search health facilities via Kenya Master Health Facility Registry (KMHFR).
+
+    Query Parameters:
+      - q: Search string (facility name, code, or keyword)
+      - county: County name or ID filter
+      - facility_type: Facility type filter
+      - page: Page number for pagination (default: 1)
+      - page_size: Items per page (default: 10, max: 100)
+    """
+
+    def get(self, request, *args, **kwargs):
+        """
+        Handle GET request for facility search.
+        Extracts parameters from request.GET, calls KMHFRService.search_facilities,
+        and returns a JsonResponse with appropriate HTTP status codes.
+        """
+        # Extract query parameters
+        search_query = (
+            request.GET.get('q') or
+            request.GET.get('search_query') or
+            request.GET.get('search')
+        )
+        county = request.GET.get('county')
+        facility_type = request.GET.get('facility_type')
+        raw_page = request.GET.get('page', 1)
+        raw_page_size = request.GET.get('page_size', 10)
+
+        # Validate numeric page parameter
+        try:
+            page = int(raw_page)
+            if page < 1:
+                raise ValueError("Page number must be >= 1")
+        except (ValueError, TypeError):
+            return JsonResponse(
+                {
+                    "error": True,
+                    "message": "Invalid 'page' parameter. Must be a positive integer."
+                },
+                status=400
+            )
+
+        # Validate numeric page_size parameter
+        try:
+            page_size = int(raw_page_size)
+            if page_size < 1 or page_size > 100:
+                raise ValueError("Page size must be between 1 and 100")
+        except (ValueError, TypeError):
+            return JsonResponse(
+                {
+                    "error": True,
+                    "message": "Invalid 'page_size' parameter. Must be an integer between 1 and 100."
+                },
+                status=400
+            )
+
+        # Sanitize string parameter inputs
+        if search_query:
+            search_query = str(search_query).strip()[:200]
+        if county:
+            county = str(county).strip()[:100]
+        if facility_type:
+            facility_type = str(facility_type).strip()[:100]
+
+        # Call service layer to perform search & cache handling
+        result = KMHFRService.search_facilities(
+            search_query=search_query,
+            county=county,
+            facility_type=facility_type,
+            page=page,
+            page_size=page_size
+        )
+
+        # Retrieve status code from service response (default 200 OK)
+        status_code = result.get('status_code', 200)
+
+        return JsonResponse(result, status=status_code)

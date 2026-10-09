@@ -418,6 +418,14 @@ KNHTS_FALLBACK_URL = config(
 KNHTS_FALLBACK_API_KEY = config('KNHTS_FALLBACK_API_KEY', default='').strip()
 KNHTS_FALLBACK_TIMEOUT = config('KNHTS_FALLBACK_TIMEOUT', default=15, cast=int)
 
+# Kenya Master Health Facility Registry (KMHFR) API Configuration
+KMHFR_API_BASE_URL = config(
+    'KMHFR_API_BASE_URL',
+    default='https://api.kmhfr.health.go.ke/api/'
+).strip().rstrip('/') + '/'
+KMHFR_API_TIMEOUT = config('KMHFR_API_TIMEOUT', default=10, cast=int)
+KMHFR_CACHE_TTL = config('KMHFR_CACHE_TTL', default=3600, cast=int)
+
 
 # ============================================================================
 # STATIC & MEDIA FILES

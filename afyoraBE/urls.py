@@ -17,6 +17,7 @@ Including another URLconf
 from django.contrib import admin
 from django.http import JsonResponse
 from django.urls import include, path
+from interoperability.views import FacilitySearchView
 
 
 def health_check(request):
@@ -37,6 +38,7 @@ urlpatterns = [
     path('health/', health_check, name='health_check'),
     path('api/health/', health_check, name='api_health_check'),
     path('admin/', admin.site.urls),
+    path('api/facilities/search/', FacilitySearchView.as_view(), name='api-facility-search'),
     path('api/', include('core.urls')),
     path('api/patients', include('patients.urls')),
     path('api/patients/', include('patients.urls')),
