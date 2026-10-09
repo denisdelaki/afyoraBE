@@ -9,11 +9,16 @@ from .views import (
 	PatientViewSet,
 	PatientVisitViewSet,
 	PatientVisitHistoryViewSet,
+	PatientVitalViewSet,
+	PatientVitalHistoryViewSet,
 	ProblemItemViewSet,
 )
 
 router = DefaultRouter(trailing_slash='/?')
 router.register(r'', PatientViewSet, basename='patient')
+
+vital_router = DefaultRouter(trailing_slash='/?')
+vital_router.register(r'', PatientVitalViewSet, basename='patient-vital')
 
 visit_router = DefaultRouter(trailing_slash='/?')
 visit_router.register(r'', PatientVisitViewSet, basename='patient-visit')
@@ -31,6 +36,23 @@ cpoe_router = DefaultRouter(trailing_slash='/?')
 cpoe_router.register(r'', CpoeOrderViewSet, basename='cpoe-order')
 
 urlpatterns = [
+	re_path(
+		r'^(?P<patient_id>[^/.]+)/vitals/?$',
+		PatientVitalHistoryViewSet.as_view({'get': 'list', 'post': 'create'}),
+		name='patient-vital-list',
+	),
+	re_path(
+		r'^(?P<patient_id>[^/.]+)/vitals/(?P<vital_id>\d+)/?$',
+		PatientVitalHistoryViewSet.as_view(
+			{
+				'get': 'retrieve',
+				'put': 'update',
+				'patch': 'partial_update',
+				'delete': 'destroy',
+			}
+		),
+		name='patient-vital-detail',
+	),
 	re_path(
 		r'^(?P<patient_id>[^/.]+)/visit-history/?$',
 		PatientVisitHistoryViewSet.as_view({'get': 'list', 'post': 'create'}),
@@ -65,6 +87,7 @@ urlpatterns = [
 		),
 		name='patient-ehr-detail',
 	),
+	path('vitals/', include(vital_router.urls)),
 	path('visits/', include(visit_router.urls)),
 	path('tickets/', include(ticket_router.urls)),
 	path('problems/', include(problem_router.urls)),

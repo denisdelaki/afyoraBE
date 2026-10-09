@@ -10,7 +10,7 @@ from rest_framework import status
 from core.models import AuditLog, User
 from core.utils import check_module_permission
 from core.compliance import log_concept_provenance
-from .models import AllergyItem, CpoeOrder, EhrRecord, OutpatientTicket, OutpatientTicketMovement, Patient, PatientVisit, ProblemItem
+from .models import AllergyItem, CpoeOrder, EhrRecord, OutpatientTicket, OutpatientTicketMovement, Patient, PatientVisit, PatientVital, ProblemItem
 from .serializers import (
 	AllergyItemSerializer,
 	CpoeOrderSerializer,
@@ -18,6 +18,7 @@ from .serializers import (
 	OutpatientTicketSerializer,
 	PatientSerializer,
 	PatientVisitSerializer,
+	PatientVitalSerializer,
 	ProblemItemSerializer,
 )
 
@@ -736,3 +737,119 @@ class CpoeOrderViewSet(_FacilityPatientScopedViewSet):
 	model_class = CpoeOrder
 	serializer_class = CpoeOrderSerializer
 	search_fields = ['title', 'order_type', 'instructions']
+
+
+class PatientVitalViewSet(_FacilityPatientScopedViewSet):
+	MODULE_KEY = 'patients'
+	model_class = PatientVital
+	serializer_class = PatientVitalSerializer
+	search_fields = [
+		'patient__patient_id',
+		'patient__first_name',
+		'patient__last_name',
+		'captured_by__username',
+		'captured_by__first_name',
+		'captured_by__last_name',
+		'captured_by_name',
+		'notes',
+	]
+	ordering = ['-recorded_at', '-created_at']
+
+	def _filter_ticket(self, queryset):
+		ticket_id = self.request.query_params.get('ticketId')
+		if ticket_id is not None:
+			try:
+				ticket_id = int(ticket_id)
+			except (TypeError, ValueError):
+				raise ValidationError({'ticketId': 'ticketId must be a valid integer.'})
+			queryset = queryset.filter(ticket_id=ticket_id)
+		return queryset
+
+	def get_queryset(self):
+		return self._filter_ticket(super().get_queryset())
+
+	def perform_create(self, serializer):
+		facility_id = self._get_facility_id_from_body()
+		self._enforce_user_facility_access(facility_id)
+
+		captured_by = None
+		captured_by_id = self.request.data.get('capturedById') or self.request.data.get('captured_by_id')
+		if captured_by_id:
+			try:
+				captured_by = User.objects.get(id=captured_by_id)
+			except User.DoesNotExist:
+				captured_by = self.request.user
+		else:
+			captured_by = self.request.user
+
+		captured_by_name = (
+			self.request.data.get('capturedByName')
+			or self.request.data.get('captured_by_name')
+			or (captured_by.get_full_name() if captured_by else '')
+			or (captured_by.username if captured_by else '')
+		)
+
+		vital = serializer.save(
+			facility_id=facility_id,
+			captured_by=captured_by,
+			captured_by_name=captured_by_name,
+		)
+
+		AuditLog.objects.create(
+			facility=vital.facility,
+			user=self.request.user,
+			action='create',
+			model_name='PatientVital',
+			object_id=str(vital.id),
+			description=(
+				f'Vitals recorded for patient {vital.patient.patient_id} at facility {vital.facility.name} '
+				f'by {captured_by_name}.'
+			),
+			ip_address=self.request.META.get('REMOTE_ADDR'),
+		)
+
+
+class PatientVitalHistoryViewSet(PatientVitalViewSet):
+	lookup_url_kwarg = 'vital_id'
+
+	def _get_patient_from_path(self, facility_id):
+		patient_id = self.kwargs.get('patient_id')
+		patient = Patient.objects.filter(
+			patient_id=patient_id,
+			facility_id=facility_id,
+			is_active=True,
+		).first()
+
+		if patient is None:
+			raise ValidationError(
+				{'patientId': 'Patient not found for the provided facilityId.'}
+			)
+
+		return patient
+
+	def get_queryset(self):
+		facility_id = self._get_facility_id_from_query()
+		self._enforce_user_facility_access(facility_id)
+		patient = self._get_patient_from_path(facility_id)
+
+		return self._filter_ticket(PatientVital.objects.filter(
+			facility_id=facility_id,
+			patient=patient,
+			is_active=True,
+		))
+
+	def create(self, request, *args, **kwargs):
+		facility_id = self._get_facility_id_from_body()
+		self._enforce_user_facility_access(facility_id)
+		patient = self._get_patient_from_path(facility_id)
+
+		payload = request.data.copy()
+		payload['facilityId'] = facility_id
+		payload['patientId'] = patient.patient_id
+
+		serializer = self.get_serializer(data=payload)
+		serializer.is_valid(raise_exception=True)
+		self.perform_create(serializer)
+		headers = self.get_success_headers(serializer.data)
+		return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+

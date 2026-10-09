@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils import timezone
 
 from core.models import BaseModel, Facility
 
@@ -274,3 +275,81 @@ class CpoeOrder(BaseModel):
 
 	def __str__(self):
 		return f"CPOE {self.id} - {self.patient.patient_id} - {self.order_type}"
+
+
+class PatientVital(BaseModel):
+	"""
+	Stores patient vitals captured at a specific facility by a specific health worker.
+	"""
+	facility = models.ForeignKey(
+		Facility,
+		on_delete=models.CASCADE,
+		related_name='patient_vitals',
+	)
+	patient = models.ForeignKey(
+		Patient,
+		on_delete=models.CASCADE,
+		related_name='vitals',
+	)
+	visit = models.ForeignKey(
+		PatientVisit,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='vitals',
+	)
+	ticket = models.ForeignKey(
+		OutpatientTicket,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='vitals',
+	)
+	captured_by = models.ForeignKey(
+		'core.User',
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='captured_vitals',
+	)
+	captured_by_name = models.CharField(max_length=150, blank=True)
+
+	temperature_c = models.DecimalField(max_digits=4, decimal_places=1, null=True, blank=True)
+	systolic_bp = models.PositiveIntegerField(null=True, blank=True)
+	diastolic_bp = models.PositiveIntegerField(null=True, blank=True)
+	heart_rate_bpm = models.PositiveIntegerField(null=True, blank=True)
+	respiratory_rate = models.PositiveIntegerField(null=True, blank=True)
+	spo2_percent = models.PositiveIntegerField(null=True, blank=True)
+	blood_glucose_mmol = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+	height_cm = models.DecimalField(max_digits=5, decimal_places=1, null=True, blank=True)
+	weight_kg = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+	bmi = models.DecimalField(max_digits=4, decimal_places=1, null=True, blank=True)
+	pain_score = models.PositiveIntegerField(null=True, blank=True)
+	notes = models.TextField(blank=True)
+	recorded_at = models.DateTimeField(default=timezone.now)
+
+	class Meta:
+		ordering = ['-recorded_at', '-created_at']
+		indexes = [
+			models.Index(fields=['facility', 'patient', 'recorded_at']),
+			models.Index(fields=['facility', 'recorded_at']),
+			models.Index(fields=['patient', 'recorded_at']),
+		]
+
+	def calculate_bmi(self):
+		if self.height_cm and self.weight_kg and self.height_cm > 0 and self.weight_kg > 0:
+			height_m = float(self.height_cm) / 100.0
+			return round(float(self.weight_kg) / (height_m * height_m), 1)
+		return None
+
+	def save(self, *args, **kwargs):
+		if self.height_cm and self.weight_kg and not self.bmi:
+			computed_bmi = self.calculate_bmi()
+			if computed_bmi is not None:
+				self.bmi = computed_bmi
+		super().save(*args, **kwargs)
+
+	def __str__(self):
+		captured_str = self.captured_by_name or (self.captured_by.get_full_name() if self.captured_by else 'Unknown')
+		return f"Vitals {self.id} - Patient {self.patient.patient_id} captured by {captured_str}"
+

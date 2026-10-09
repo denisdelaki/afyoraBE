@@ -2,7 +2,7 @@ from django.test import TestCase
 from rest_framework.test import APIClient
 
 from core.models import Facility, User
-from .models import OutpatientTicket, Patient, PatientVisit
+from .models import OutpatientTicket, Patient, PatientVisit, PatientVital
 
 
 class PatientAPITests(TestCase):
@@ -402,3 +402,244 @@ class OutpatientTicketAPITests(TestCase):
 		self.assertEqual(completed.data['status'], 'completed')
 		self.assertIsNotNone(completed.data['completedAt'])
 		self.assertEqual(OutpatientTicket.objects.get(id=ticket_id).movements.count(), 2)
+
+
+class PatientVitalAPITests(TestCase):
+	def setUp(self):
+		self.facility1 = Facility.objects.create(
+			name='Kenyatta National Hospital',
+			facility_type='hospital',
+			registration_number='REG-KNH-001',
+			email='knh@example.com',
+			phone='0711111111',
+		)
+		self.facility2 = Facility.objects.create(
+			name='Aga Khan Hospital',
+			facility_type='hospital',
+			registration_number='REG-AKH-002',
+			email='akh@example.com',
+			phone='0722222222',
+		)
+
+		self.nurse_jane = User.objects.create_user(
+			username='nurse_jane',
+			first_name='Jane',
+			last_name='Wanjiku',
+			email='jane@knh.or.ke',
+			password='StrongPass123!',
+			facility=self.facility1,
+			role='nurse',
+		)
+		self.doctor_bob = User.objects.create_user(
+			username='doctor_bob',
+			first_name='Bob',
+			last_name='Otieno',
+			email='bob@knh.or.ke',
+			password='StrongPass123!',
+			facility=self.facility1,
+			role='doctor',
+		)
+		self.other_user = User.objects.create_user(
+			username='other_user',
+			email='other@akh.or.ke',
+			password='StrongPass123!',
+			facility=self.facility2,
+			role='nurse',
+		)
+
+		self.patient = Patient.objects.create(
+			facility=self.facility1,
+			patient_id='PAT-VITAL-001',
+			first_name='Peter',
+			last_name='Kamau',
+			phone='0733333333',
+		)
+
+		self.client = APIClient()
+
+	def test_create_patient_vitals_by_specific_nurse(self):
+		self.client.force_authenticate(user=self.nurse_jane)
+		payload = {
+			'facilityId': self.facility1.id,
+			'patientId': self.patient.patient_id,
+			'temperatureC': 37.5,
+			'systolicBp': 120,
+			'diastolicBp': 80,
+			'heartRateBpm': 72,
+			'respiratoryRate': 16,
+			'spo2Percent': 98,
+			'bloodGlucoseMmol': 5.4,
+			'heightCm': 175.0,
+			'weightKg': 70.0,
+			'painScore': 2,
+			'notes': 'Patient resting comfortably.',
+		}
+
+		response = self.client.post('/api/patients/vitals/', payload, format='json')
+
+		self.assertEqual(response.status_code, 201)
+		self.assertEqual(PatientVital.objects.count(), 1)
+
+		vital = PatientVital.objects.first()
+		self.assertEqual(vital.patient, self.patient)
+		self.assertEqual(vital.facility, self.facility1)
+		self.assertEqual(vital.captured_by, self.nurse_jane)
+		self.assertEqual(vital.captured_by_name, 'Jane Wanjiku')
+		self.assertEqual(float(vital.temperature_c), 37.5)
+		self.assertEqual(vital.systolic_bp, 120)
+		self.assertEqual(vital.diastolic_bp, 80)
+		self.assertEqual(float(vital.bmi), 22.9)  # auto-computed 70 / (1.75^2)
+
+	def test_fetch_vitals_for_patient(self):
+		self.client.force_authenticate(user=self.doctor_bob)
+
+		vital = PatientVital.objects.create(
+			facility=self.facility1,
+			patient=self.patient,
+			captured_by=self.nurse_jane,
+			captured_by_name='Nurse Jane Wanjiku',
+			temperature_c=38.2,
+			systolic_bp=135,
+			diastolic_bp=88,
+			heart_rate_bpm=88,
+			spo2_percent=95,
+		)
+
+		# Fetch via general vitals endpoint with patientId filter
+		response = self.client.get(
+			f'/api/patients/vitals/?facilityId={self.facility1.id}&patientId={self.patient.patient_id}'
+		)
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data['count'], 1)
+		self.assertEqual(response.data['results'][0]['id'], vital.id)
+		self.assertEqual(response.data['results'][0]['capturedBy']['fullName'], 'Jane Wanjiku')
+
+		# Fetch via patient-nested vitals endpoint
+		nested_response = self.client.get(
+			f'/api/patients/{self.patient.patient_id}/vitals/?facilityId={self.facility1.id}'
+		)
+		self.assertEqual(nested_response.status_code, 200)
+		self.assertEqual(nested_response.data['count'], 1)
+		self.assertEqual(nested_response.data['results'][0]['id'], vital.id)
+
+	def test_save_and_fetch_vitals_without_consultation_for_ticket(self):
+		self.client.force_authenticate(user=self.nurse_jane)
+		ticket = OutpatientTicket.objects.create(
+			facility=self.facility1, patient=self.patient, ticket_number='VITAL-001',
+		)
+		other_ticket = OutpatientTicket.objects.create(
+			facility=self.facility1, patient=self.patient, ticket_number='VITAL-002',
+		)
+		PatientVital.objects.create(
+			facility=self.facility1, patient=self.patient, ticket=other_ticket, systolic_bp=130,
+		)
+		PatientVital.objects.create(facility=self.facility1, patient=self.patient, systolic_bp=140)
+		response = self.client.post(
+			f'/api/patients/{self.patient.patient_id}/vitals/',
+			{'facilityId': self.facility1.id, 'ticketId': str(ticket.id), 'painScore': 0},
+			format='json',
+		)
+		self.assertEqual(response.status_code, 201, response.data)
+		vital = PatientVital.objects.get(id=response.data['id'])
+		self.assertEqual(vital.ticket, ticket)
+		self.assertIsNone(vital.visit)
+		self.assertEqual(vital.pain_score, 0)
+		for endpoint in ('/api/patients/vitals/', f'/api/patients/{self.patient.patient_id}/vitals/'):
+			fetched = self.client.get(
+				f'{endpoint}?facilityId={self.facility1.id}&patientId={self.patient.patient_id}&ticketId={ticket.id}',
+			)
+			self.assertEqual(fetched.status_code, 200, fetched.data)
+			self.assertEqual(fetched.data['count'], 1)
+			self.assertEqual(fetched.data['results'][0]['id'], vital.id)
+			self.assertEqual(fetched.data['results'][0]['ticketId'], ticket.id)
+
+	def test_reject_vitals_for_another_patients_ticket(self):
+		self.client.force_authenticate(user=self.nurse_jane)
+		other_patient = Patient.objects.create(
+			facility=self.facility1, patient_id='PAT-VITAL-002', first_name='Other', last_name='Patient',
+		)
+		ticket = OutpatientTicket.objects.create(
+			facility=self.facility1, patient=other_patient, ticket_number='VITAL-OTHER',
+		)
+		response = self.client.post('/api/patients/vitals/', {
+			'facilityId': self.facility1.id, 'patientId': self.patient.patient_id,
+			'ticketId': ticket.id, 'systolicBp': 120,
+		}, format='json')
+		self.assertEqual(response.status_code, 400)
+		self.assertIn('ticketId', response.data)
+		self.assertEqual(PatientVital.objects.count(), 0)
+
+	def test_reject_vitals_for_another_facilitys_ticket(self):
+		self.client.force_authenticate(user=self.nurse_jane)
+		other_patient = Patient.objects.create(
+			facility=self.facility2, patient_id='PAT-OTHER-FACILITY', first_name='Other', last_name='Patient',
+		)
+		ticket = OutpatientTicket.objects.create(
+			facility=self.facility2, patient=other_patient, ticket_number='VITAL-OTHER-FACILITY',
+		)
+		response = self.client.post('/api/patients/vitals/', {
+			'facilityId': self.facility1.id, 'patientId': self.patient.patient_id,
+			'ticketId': ticket.id, 'systolicBp': 120,
+		}, format='json')
+		self.assertEqual(response.status_code, 400)
+		self.assertIn('ticketId', response.data)
+
+	def test_reject_invalid_ticket_filter(self):
+		self.client.force_authenticate(user=self.doctor_bob)
+		response = self.client.get(f'/api/patients/vitals/?facilityId={self.facility1.id}&ticketId=invalid')
+		self.assertEqual(response.status_code, 400)
+		self.assertIn('ticketId', response.data)
+
+	def test_modify_vitals(self):
+		self.client.force_authenticate(user=self.nurse_jane)
+
+		vital = PatientVital.objects.create(
+			facility=self.facility1,
+			patient=self.patient,
+			captured_by=self.nurse_jane,
+			captured_by_name='Jane Wanjiku',
+			temperature_c=36.8,
+			systolic_bp=120,
+			diastolic_bp=80,
+		)
+
+		patch_payload = {
+			'facilityId': self.facility1.id,
+			'temperatureC': 37.1,
+			'systolicBp': 125,
+			'notes': 'Re-checked after 15 mins rest.',
+		}
+
+		response = self.client.patch(
+			f'/api/patients/vitals/{vital.id}/?facilityId={self.facility1.id}',
+			patch_payload,
+			format='json',
+		)
+
+		self.assertEqual(response.status_code, 200)
+		vital.refresh_from_db()
+		self.assertEqual(float(vital.temperature_c), 37.1)
+		self.assertEqual(vital.systolic_bp, 125)
+		self.assertEqual(vital.notes, 'Re-checked after 15 mins rest.')
+
+	def test_facility_isolation_for_vitals(self):
+		# Create vitals at Facility 1
+		vital = PatientVital.objects.create(
+			facility=self.facility1,
+			patient=self.patient,
+			captured_by=self.nurse_jane,
+			temperature_c=37.0,
+		)
+
+		# Authenticate user from Facility 2 and attempt access
+		self.client.force_authenticate(user=self.other_user)
+
+		# Attempt GET list with Facility 2 ID
+		response = self.client.get(f'/api/patients/vitals/?facilityId={self.facility2.id}')
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data['count'], 0)  # Facility 2 has no vitals
+
+		# Attempt GET with Facility 1 ID should be denied due to user facility mismatch
+		denied_response = self.client.get(f'/api/patients/vitals/?facilityId={self.facility1.id}')
+		self.assertEqual(denied_response.status_code, 403)
+

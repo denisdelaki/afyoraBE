@@ -128,6 +128,7 @@ INSTALLED_APPS = [
     'interoperability',              # Kenya HIE, FHIR/SDMX exchange, quality measures
     'knhts',                         # Kenya National Health Terminology Service
     'dha_connect',                   # DHA AfyaConnect eClaims & Preauth
+    'clinical_ai',                   # Clinical Decision Support AI Gateway
 ]
 
 
@@ -567,4 +568,10 @@ CELERY_RESULT_BACKEND = config('CELERY_RESULT_BACKEND', default='redis://localho
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
- 
+
+# ============================================================================
+# CLINICAL AI SERVICE CONFIGURATION
+# ============================================================================
+CLINICAL_AI_BASE_URL = config('CLINICAL_AI_BASE_URL', default='http://127.0.0.1:8001')
+CLINICAL_AI_TOKEN = config('CLINICAL_AI_TOKEN', default='')
+CLINICAL_AI_TIMEOUT = config('CLINICAL_AI_TIMEOUT', default=45, cast=int)

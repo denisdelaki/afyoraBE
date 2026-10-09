@@ -32,6 +32,12 @@ services:
         sync: false
       - key: DEFAULT_FROM_EMAIL
         sync: false
+      - key: CLINICAL_AI_BASE_URL
+        sync: false
+      - key: CLINICAL_AI_TOKEN
+        sync: false
+      - key: CLINICAL_AI_TIMEOUT
+        value: 45
       - key: KNHTS_BASE_URL
         value: https://knhts.health.go.ke/fhir
       - key: KNHTS_API_KEY

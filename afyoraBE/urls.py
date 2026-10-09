@@ -53,4 +53,5 @@ urlpatterns = [
     path('api/interoperability/', include('interoperability.urls')),
     path('api/knhts/', include('knhts.urls')),
     path('api/dha/', include('dha_connect.urls')),
+    path('api/clinical-ai/', include('clinical_ai.urls')),
 ]

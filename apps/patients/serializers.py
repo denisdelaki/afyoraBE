@@ -12,6 +12,7 @@ from .models import (
     OutpatientTicketMovement,
     Patient,
     PatientVisit,
+    PatientVital,
     ProblemItem,
 )
 from pharmacy.models import Drug, Prescription
@@ -569,6 +570,27 @@ class PatientVisitSerializer(serializers.ModelSerializer):
         prescriptions_payload = validated_data.get('prescriptions', [])
         visit = super().create(validated_data)
         self._sync_linked_prescription(visit, prescriptions_payload)
+
+        vitals_payload = self.initial_data.get('vitals')
+        if vitals_payload and isinstance(vitals_payload, dict):
+            vital_serializer = PatientVitalSerializer(data=vitals_payload)
+            if vital_serializer.is_valid():
+                request = self.context.get('request')
+                user = request.user if request and hasattr(request, 'user') and request.user.is_authenticated else None
+                captured_by_name = (
+                    vitals_payload.get('capturedByName')
+                    or vitals_payload.get('captured_by_name')
+                    or (user.get_full_name() if user else '')
+                    or (user.username if user else '')
+                )
+                vital_serializer.save(
+                    facility_id=visit.facility_id,
+                    patient=visit.patient,
+                    visit=visit,
+                    captured_by=user,
+                    captured_by_name=captured_by_name,
+                )
+
         return visit
 
     def update(self, instance, validated_data):
@@ -577,6 +599,31 @@ class PatientVisitSerializer(serializers.ModelSerializer):
 
         if prescriptions_payload is not None:
             self._sync_linked_prescription(visit, prescriptions_payload)
+
+        vitals_payload = self.initial_data.get('vitals')
+        if vitals_payload and isinstance(vitals_payload, dict):
+            existing_vital = instance.vitals.filter(is_active=True).first()
+            vital_serializer = PatientVitalSerializer(
+                instance=existing_vital,
+                data=vitals_payload,
+                partial=True,
+            )
+            if vital_serializer.is_valid():
+                request = self.context.get('request')
+                user = request.user if request and hasattr(request, 'user') and request.user.is_authenticated else None
+                captured_by_name = (
+                    vitals_payload.get('capturedByName')
+                    or vitals_payload.get('captured_by_name')
+                    or (user.get_full_name() if user else '')
+                    or (user.username if user else '')
+                )
+                vital_serializer.save(
+                    facility_id=visit.facility_id,
+                    patient=visit.patient,
+                    visit=visit,
+                    captured_by=user if user else (existing_vital.captured_by if existing_vital else None),
+                    captured_by_name=captured_by_name or (existing_vital.captured_by_name if existing_vital else ''),
+                )
 
         return visit
 
@@ -600,6 +647,12 @@ class PatientVisitSerializer(serializers.ModelSerializer):
         if instance.prescription_record_id:
             prescription_id = instance.prescription_record.prescription_id
             data['prescription'] = prescription_id
+
+        linked_vital = instance.vitals.filter(is_active=True).first()
+        if linked_vital:
+            data['vitals'] = PatientVitalSerializer(linked_vital).data
+        else:
+            data['vitals'] = None
 
         return data
 
@@ -687,6 +740,7 @@ class EhrRecordSerializer(serializers.ModelSerializer):
     doctorNotes = serializers.CharField(source='doctor_notes', required=False, allow_blank=True)
     prescriptions = serializers.SerializerMethodField()
     labResults = serializers.SerializerMethodField()
+    vitals = serializers.SerializerMethodField()
     notes = serializers.CharField(source='doctor_notes', read_only=True)
 
     class Meta:
@@ -706,18 +760,80 @@ class EhrRecordSerializer(serializers.ModelSerializer):
             'doctorNotes',
             'prescriptions',
             'labResults',
+            'vitals',
             'notes',
             'is_active',
             'created_at',
             'updated_at',
         ]
-        read_only_fields = ['id', 'date', 'prescriptions', 'labResults', 'notes', 'is_active', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'date', 'prescriptions', 'labResults', 'vitals', 'notes', 'is_active', 'created_at', 'updated_at']
 
     def get_prescriptions(self, obj):
         return [item.strip() for item in (obj.treatment or '').split('\n') if item.strip()]
 
     def get_labResults(self, obj):
         return []
+
+    def get_vitals(self, obj):
+        vital = PatientVital.objects.filter(
+            facility_id=obj.facility_id,
+            patient=obj.patient,
+            is_active=True,
+        ).first()
+        return PatientVitalSerializer(vital).data if vital else None
+
+    def create(self, validated_data):
+        ehr = super().create(validated_data)
+        vitals_payload = self.initial_data.get('vitals')
+        if vitals_payload and isinstance(vitals_payload, dict):
+            vital_serializer = PatientVitalSerializer(data=vitals_payload)
+            if vital_serializer.is_valid():
+                request = self.context.get('request')
+                user = request.user if request and hasattr(request, 'user') and request.user.is_authenticated else None
+                captured_by_name = (
+                    vitals_payload.get('capturedByName')
+                    or vitals_payload.get('captured_by_name')
+                    or (user.get_full_name() if user else '')
+                    or (user.username if user else '')
+                )
+                vital_serializer.save(
+                    facility_id=ehr.facility_id,
+                    patient=ehr.patient,
+                    captured_by=user,
+                    captured_by_name=captured_by_name,
+                )
+        return ehr
+
+    def update(self, instance, validated_data):
+        ehr = super().update(instance, validated_data)
+        vitals_payload = self.initial_data.get('vitals')
+        if vitals_payload and isinstance(vitals_payload, dict):
+            existing_vital = PatientVital.objects.filter(
+                facility_id=ehr.facility_id,
+                patient=ehr.patient,
+                is_active=True,
+            ).first()
+            vital_serializer = PatientVitalSerializer(
+                instance=existing_vital,
+                data=vitals_payload,
+                partial=True,
+            )
+            if vital_serializer.is_valid():
+                request = self.context.get('request')
+                user = request.user if request and hasattr(request, 'user') and request.user.is_authenticated else None
+                captured_by_name = (
+                    vitals_payload.get('capturedByName')
+                    or vitals_payload.get('captured_by_name')
+                    or (user.get_full_name() if user else '')
+                    or (user.username if user else '')
+                )
+                vital_serializer.save(
+                    facility_id=ehr.facility_id,
+                    patient=ehr.patient,
+                    captured_by=user if user else (existing_vital.captured_by if existing_vital else None),
+                    captured_by_name=captured_by_name or (existing_vital.captured_by_name if existing_vital else ''),
+                )
+        return ehr
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
@@ -771,27 +887,46 @@ class EhrRecordSerializer(serializers.ModelSerializer):
         return data
 
 
+from django.db import models
+
+
 def _resolve_patient_for_write(attrs, instance, target_model_label):
-    """Shared patientId/facilityId → Patient FK resolution for EHR sub-records."""
-    patient_external_id = attrs.pop('patientId', None)
+    """Shared patientId/facilityId → Patient FK resolution for EHR & Vitals records."""
+    patient_ref = attrs.pop('patientId', None) or attrs.pop('patient_id', None)
+    if patient_ref is None and 'patient' in attrs:
+        patient_val = attrs.pop('patient')
+        if isinstance(patient_val, Patient):
+            patient_ref = patient_val.patient_id
+        else:
+            patient_ref = patient_val
+
     facility_id = attrs.get('facility_id')
 
-    if instance is None and not patient_external_id:
+    if instance is None and not patient_ref:
         raise serializers.ValidationError({'patientId': 'patientId is required.'})
     if instance is None and facility_id is None:
         raise serializers.ValidationError({'facilityId': 'facilityId is required.'})
 
     target_facility_id = facility_id if facility_id is not None else instance.facility_id
 
-    if patient_external_id:
-        patient = Patient.objects.filter(
-            patient_id=patient_external_id,
-            facility_id=target_facility_id,
-            is_active=True,
-        ).first()
+    if patient_ref:
+        if isinstance(patient_ref, Patient):
+            patient = patient_ref
+        else:
+            patient_str = str(patient_ref).strip()
+            query = Patient.objects.filter(facility_id=target_facility_id, is_active=True)
+            if patient_str.isdigit():
+                patient = query.filter(models.Q(patient_id=patient_str) | models.Q(id=int(patient_str))).first()
+            else:
+                patient = query.filter(patient_id=patient_str).first()
+
         if patient is None:
             raise serializers.ValidationError(
-                {'patientId': 'Patient not found for the provided facilityId.'}
+                {'patientId': f'Patient "{patient_ref}" not found for the provided facilityId.'}
+            )
+        if patient.facility_id != target_facility_id:
+            raise serializers.ValidationError(
+                {'patientId': f'Patient does not belong to facility {target_facility_id}.'}
             )
         attrs['patient'] = patient
 
@@ -801,6 +936,7 @@ def _resolve_patient_for_write(attrs, instance, target_model_label):
         )
 
     return attrs
+
 
 
 class ProblemItemSerializer(serializers.ModelSerializer):
@@ -881,3 +1017,118 @@ class CpoeOrderSerializer(serializers.ModelSerializer):
         data = super().to_representation(instance)
         data['patientId'] = instance.patient.patient_id
         return data
+
+
+class PatientVitalSerializer(serializers.ModelSerializer):
+    patientId = serializers.CharField(write_only=True, required=False)
+    facilityId = serializers.IntegerField(source='facility_id', required=False)
+    visitId = serializers.IntegerField(source='visit_id', required=False, allow_null=True)
+    ticketId = serializers.IntegerField(source='ticket_id', required=False, allow_null=True)
+    capturedById = serializers.IntegerField(source='captured_by_id', required=False, allow_null=True)
+    capturedByName = serializers.CharField(source='captured_by_name', required=False, allow_blank=True)
+
+    temperatureC = serializers.DecimalField(source='temperature_c', max_digits=4, decimal_places=1, required=False, allow_null=True)
+    systolicBp = serializers.IntegerField(source='systolic_bp', required=False, allow_null=True)
+    diastolicBp = serializers.IntegerField(source='diastolic_bp', required=False, allow_null=True)
+    heartRateBpm = serializers.IntegerField(source='heart_rate_bpm', required=False, allow_null=True)
+    respiratoryRate = serializers.IntegerField(source='respiratory_rate', required=False, allow_null=True)
+    spo2Percent = serializers.IntegerField(source='spo2_percent', required=False, allow_null=True)
+    bloodGlucoseMmol = serializers.DecimalField(source='blood_glucose_mmol', max_digits=5, decimal_places=2, required=False, allow_null=True)
+    heightCm = serializers.DecimalField(source='height_cm', max_digits=5, decimal_places=1, required=False, allow_null=True)
+    weightKg = serializers.DecimalField(source='weight_kg', max_digits=5, decimal_places=2, required=False, allow_null=True)
+    bmi = serializers.DecimalField(max_digits=4, decimal_places=1, required=False, allow_null=True)
+    painScore = serializers.IntegerField(source='pain_score', required=False, allow_null=True)
+    recordedAt = serializers.DateTimeField(source='recorded_at', required=False)
+
+    class Meta:
+        model = PatientVital
+        fields = [
+            'id',
+            'facilityId',
+            'patientId',
+            'visitId',
+            'ticketId',
+            'capturedById',
+            'capturedByName',
+            'temperatureC',
+            'systolicBp',
+            'diastolicBp',
+            'heartRateBpm',
+            'respiratoryRate',
+            'spo2Percent',
+            'bloodGlucoseMmol',
+            'heightCm',
+            'weightKg',
+            'bmi',
+            'painScore',
+            'notes',
+            'recordedAt',
+            'is_active',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'is_active', 'created_at', 'updated_at']
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        initial = self.initial_data or {}
+
+        # Temperature aliases
+        if 'temperature' in initial and 'temperature_c' not in attrs:
+            attrs['temperature_c'] = initial['temperature']
+        elif 'temp' in initial and 'temperature_c' not in attrs:
+            attrs['temperature_c'] = initial['temp']
+
+        # Systolic aliases
+        if 'systolic' in initial and 'systolic_bp' not in attrs:
+            attrs['systolic_bp'] = initial['systolic']
+
+        # Diastolic aliases
+        if 'diastolic' in initial and 'diastolic_bp' not in attrs:
+            attrs['diastolic_bp'] = initial['diastolic']
+
+        # Heart rate / pulse aliases
+        if 'pulse' in initial and 'heart_rate_bpm' not in attrs:
+            attrs['heart_rate_bpm'] = initial['pulse']
+        elif 'heartRate' in initial and 'heart_rate_bpm' not in attrs:
+            attrs['heart_rate_bpm'] = initial['heartRate']
+
+        # SpO2 aliases
+        if 'spo2' in initial and 'spo2_percent' not in attrs:
+            attrs['spo2_percent'] = initial['spo2']
+        elif 'oximetry' in initial and 'spo2_percent' not in attrs:
+            attrs['spo2_percent'] = initial['oximetry']
+
+        # Blood glucose aliases
+        if 'bloodGlucose' in initial and 'blood_glucose_mmol' not in attrs:
+            attrs['blood_glucose_mmol'] = initial['bloodGlucose']
+        elif 'glucose' in initial and 'blood_glucose_mmol' not in attrs:
+            attrs['blood_glucose_mmol'] = initial['glucose']
+
+        attrs = _resolve_patient_for_write(attrs, self.instance, 'patient vital record')
+        ticket_id = attrs.get('ticket_id', self.instance.ticket_id if self.instance else None)
+        if ticket_id is not None:
+            patient = attrs.get('patient', self.instance.patient if self.instance else None)
+            facility_id = attrs.get('facility_id', self.instance.facility_id if self.instance else None)
+            if not OutpatientTicket.objects.filter(
+                pk=ticket_id, patient=patient, facility_id=facility_id, is_active=True,
+            ).exists():
+                raise serializers.ValidationError({
+                    'ticketId': 'Ticket must belong to the selected patient and facility.',
+                })
+        return attrs
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data['patientId'] = instance.patient.patient_id
+        if instance.captured_by:
+            data['capturedBy'] = {
+                'id': instance.captured_by.id,
+                'username': instance.captured_by.username,
+                'fullName': instance.captured_by.get_full_name() or instance.captured_by.username,
+                'role': instance.captured_by.role,
+            }
+        else:
+            data['capturedBy'] = None
+        return data
+

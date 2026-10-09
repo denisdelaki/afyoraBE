@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import AllergyItem, CpoeOrder, EhrRecord, OutpatientTicket, OutpatientTicketMovement, Patient, ProblemItem
+from .models import AllergyItem, CpoeOrder, EhrRecord, OutpatientTicket, OutpatientTicketMovement, Patient, PatientVital, ProblemItem
 
 
 @admin.register(Patient)
@@ -62,3 +62,24 @@ class CpoeOrderAdmin(admin.ModelAdmin):
 	list_display = ('id', 'patient', 'facility', 'order_type', 'title', 'status', 'order_date')
 	list_filter = ('facility', 'order_type', 'status')
 	search_fields = ('title', 'order_type', 'patient__patient_id')
+
+
+@admin.register(PatientVital)
+class PatientVitalAdmin(admin.ModelAdmin):
+	list_display = (
+		'id',
+		'patient',
+		'facility',
+		'captured_by_name',
+		'temperature_c',
+		'systolic_bp',
+		'diastolic_bp',
+		'heart_rate_bpm',
+		'spo2_percent',
+		'recorded_at',
+		'is_active',
+	)
+	list_filter = ('facility', 'is_active', 'recorded_at')
+	search_fields = ('patient__patient_id', 'patient__first_name', 'patient__last_name', 'captured_by_name', 'notes')
+	ordering = ('-recorded_at', '-created_at')
+
