@@ -33,7 +33,7 @@ services:
       - key: DEFAULT_FROM_EMAIL
         sync: false
       - key: CLINICAL_AI_BASE_URL
-        sync: false
+        value: https://afyoraai.onrender.com
       - key: CLINICAL_AI_TOKEN
         sync: false
       - key: CLINICAL_AI_TIMEOUT

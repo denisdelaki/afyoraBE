@@ -67,6 +67,13 @@ The standalone `POST /api/clinical-ai/analyze/` endpoint must return this exact
 shape. Extra or missing fields are rejected; `requires_human_review` must be true.
 The analyzer response does not include a confidence score.
 
+The standalone screening levels are `urgent`, `no_threshold_triggered`, and
+`not_assessed`. The backend also accepts legacy `routine` and `emergency` levels.
+Native screening levels are preserved in `triage.level`. The two non-urgent
+screening outcomes map to legacy `urgency: routine` and `risk_level: moderate`,
+with an explicit `uncertainty` entry; they do not establish low clinical risk.
+Referral requirements remain determined by `urgent_care_recommended`.
+
 ```json
 {
   "supported_diagnosis": "Provisional assessment; clinician review required.",

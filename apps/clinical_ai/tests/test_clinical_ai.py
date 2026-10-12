@@ -20,7 +20,7 @@ from clinical_ai.serializers import ClinicalAIConsultationRequestSerializer
 
 
 from clinical_ai.services.ai_gateway import call_clinical_ai_analysis, ClinicalAIServiceError
-from clinical_ai.services.consultation_service import build_analysis_payload
+from clinical_ai.services.consultation_service import build_analysis_payload, package_analysis
 
 
 def analysis_result():
@@ -58,6 +58,29 @@ class ClinicalAIGatewayTests(SimpleTestCase):
         self.assertEqual(post.call_args.kwargs['timeout'], 45)
 
     @patch('clinical_ai.services.ai_gateway.requests.post')
+    def test_standalone_screening_levels_validate_and_package(self, post):
+        for level in ('urgent', 'no_threshold_triggered', 'not_assessed'):
+            with self.subTest(level=level):
+                response = analysis_result()
+                response['triage'].update({
+                    'level': level,
+                    'urgent_care_recommended': level == 'urgent',
+                    'reasons': response['triage']['reasons'] if level == 'urgent' else [],
+                })
+                post.return_value = Mock(status_code=200, json=Mock(return_value=response))
+                validated = call_clinical_ai_analysis({})
+                packaged = package_analysis(validated, 1)
+                self.assertEqual(packaged['analysis']['triage']['level'], level)
+                self.assertTrue(packaged['requires_human_review'])
+                self.assertEqual(packaged['urgency'], 'urgent' if level == 'urgent' else 'routine')
+                self.assertEqual(packaged['risk_level'], 'high' if level == 'urgent' else 'moderate')
+                self.assertEqual(packaged['referral_recommendation']['required'], level == 'urgent')
+                self.assertEqual(packaged['recommended_investigations'][0]['urgency'], packaged['urgency'])
+                if level != 'urgent':
+                    self.assertTrue(packaged['uncertainty'])
+                    self.assertFalse(packaged['emergency'])
+
+    @patch('clinical_ai.services.ai_gateway.requests.post')
     def test_failures_are_not_successful_assessments(self, post):
         for upstream, downstream in [(400, 400), (401, 503), (405, 502), (415, 502), (429, 429), (502, 502), (503, 503), (504, 504), (302, 502)]:
             with self.subTest(upstream=upstream):
@@ -85,6 +108,38 @@ class ClinicalAIGatewayTests(SimpleTestCase):
                 diagnostic = '\n'.join(captured.output)
                 self.assertIn(raised.exception.request_id, diagnostic)
                 self.assertNotIn(str(invalid), diagnostic)
+
+    @patch('clinical_ai.services.ai_gateway.requests.post')
+    def test_validation_diagnostics_exclude_upstream_values_and_unknown_keys(self, post):
+        invalid = {**analysis_result(), 'supported_diagnosis': ['Private clinical text'], 'private_patient_reference': 'Private value'}
+        invalid['triage'].pop('rule_set')
+        post.return_value = Mock(status_code=200, json=Mock(return_value=invalid))
+        with self.assertLogs('clinical_ai', level='WARNING') as captured:
+            with self.assertRaises(ClinicalAIServiceError) as raised:
+                call_clinical_ai_analysis({})
+        error = raised.exception.detail['error']
+        self.assertEqual(error['reason'], 'schema_mismatch')
+        self.assertIn({'location': 'supported_diagnosis', 'type': 'string_type'}, error['validation_errors'])
+        self.assertIn({'location': 'triage.rule_set', 'type': 'missing'}, error['validation_errors'])
+        self.assertIn({'location': 'response', 'type': 'extra_forbidden'}, error['validation_errors'])
+        diagnostics = str(raised.exception.detail) + '\n'.join(captured.output)
+        for private_text in ('Private clinical text', 'private_patient_reference', 'Private value'):
+            self.assertNotIn(private_text, diagnostics)
+
+    @patch('clinical_ai.services.ai_gateway.requests.post')
+    def test_invalid_json_and_human_review_have_distinct_reasons(self, post):
+        post.return_value = Mock(status_code=200, json=Mock(side_effect=ValueError('Private response')))
+        with self.assertRaises(ClinicalAIServiceError) as raised:
+            call_clinical_ai_analysis({})
+        self.assertEqual(raised.exception.detail['error']['reason'], 'invalid_json')
+        self.assertNotIn('Private response', str(raised.exception.detail))
+        invalid = analysis_result()
+        invalid['triage']['requires_human_review'] = False
+        post.return_value = Mock(status_code=200, json=Mock(return_value=invalid))
+        with self.assertRaises(ClinicalAIServiceError) as raised:
+            call_clinical_ai_analysis({})
+        self.assertEqual(raised.exception.detail['error']['reason'], 'human_review_required')
+        self.assertEqual(raised.exception.status_code, 502)
 
     @patch('clinical_ai.services.ai_gateway.requests.post')
     def test_upstream_502_is_distinct_from_local_validation_failure(self, post):

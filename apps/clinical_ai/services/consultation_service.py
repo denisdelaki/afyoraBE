@@ -195,8 +195,16 @@ def build_analysis_payload(patient, data, context):
 
 def package_analysis(analyzer_response, consultation_id):
     triage = analyzer_response['triage']
-    urgency = triage['level']
-    risk_level = {'routine': 'low', 'urgent': 'high', 'emergency': 'critical'}[urgency]
+    screening_level = triage['level']
+    urgency = screening_level if screening_level in ('routine', 'urgent', 'emergency') else 'routine'
+    risk_level = {
+        'routine': 'low', 'urgent': 'high', 'emergency': 'critical',
+        'no_threshold_triggered': 'moderate', 'not_assessed': 'moderate',
+    }[screening_level]
+    uncertainty = {
+        'no_threshold_triggered': ['No vital threshold was triggered; this does not establish low clinical risk.'],
+        'not_assessed': ['Vital screening was not assessed; clinical risk remains undetermined.'],
+    }.get(screening_level, [])
     referral_reason = triage['recommendation'] or '; '.join(triage['reasons'])
     possible_conditions = [
         {'condition': disease, 'likelihood': 'unspecified', 'supporting_evidence': []}
@@ -253,7 +261,7 @@ def package_analysis(analyzer_response, consultation_id):
         'follow_up': [],
         'evidence_citations': [],
         'confidence_level': 'unknown',
-        'uncertainty': [],
+        'uncertainty': uncertainty,
         'missing_information': triage['unassessed_vitals'],
         'specialist_referral': referral['reason'] if referral['required'] else None,
         'model_version': '',

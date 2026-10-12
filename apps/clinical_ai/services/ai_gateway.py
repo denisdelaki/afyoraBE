@@ -11,7 +11,7 @@ from rest_framework.exceptions import APIException
 logger = logging.getLogger('clinical_ai')
 
 class ClinicalAIServiceError(APIException):
-    def __init__(self, code, message, status_code=502, request_id=None, upstream_status=None, upstream_code=None):
+    def __init__(self, code, message, status_code=502, request_id=None, upstream_status=None, upstream_code=None, reason=None, validation_errors=None):
         self.status_code = status_code
         self.request_id = request_id or str(uuid.uuid4())
         error = {'code': code, 'message': message}
@@ -19,12 +19,16 @@ class ClinicalAIServiceError(APIException):
             error['upstream_status'] = upstream_status
         if upstream_code is not None:
             error['upstream_code'] = upstream_code
+        if reason is not None:
+            error['reason'] = reason
+        if validation_errors is not None:
+            error['validation_errors'] = validation_errors
         super().__init__({'error': error, 'request_id': self.request_id})
 
 
 class AnalyzerTriage(BaseModel):
     model_config = ConfigDict(strict=True, extra='forbid')
-    level: Literal['routine', 'urgent', 'emergency']
+    level: Literal['routine', 'urgent', 'emergency', 'no_threshold_triggered', 'not_assessed']
     urgent_care_recommended: bool
     reasons: list[str]
     unassessed_vitals: list[str]
@@ -121,13 +125,20 @@ def call_clinical_ai_analysis(payload: dict) -> dict:
         logger.warning('Clinical AI response was not valid JSON request_id=%s', request_id)
         raise ClinicalAIServiceError(
             'clinical_ai_invalid_response', 'Clinical AI returned an invalid assessment.', 502, request_id,
+            reason='invalid_json',
         ) from None
     try:
         analysis = AnalyzerResponse.model_validate(response_body)
     except ValidationError as exc:
+        allowed_locations = {(field,) for field in AnalyzerResponse.model_fields}
+        allowed_locations.update(('triage', field) for field in AnalyzerTriage.model_fields)
         issues = [
             {
-                'location': '.'.join(str(part) for part in error['loc']),
+                'location': (
+                    '.'.join(str(part) for part in error['loc'])
+                    if tuple(part for part in error['loc'] if not isinstance(part, int)) in allowed_locations
+                    else 'response'
+                ),
                 'type': error['type'],
             }
             for error in exc.errors(include_input=False, include_context=False)
@@ -135,11 +146,13 @@ def call_clinical_ai_analysis(payload: dict) -> dict:
         logger.warning('Clinical AI response schema mismatch request_id=%s issues=%s', request_id, issues[:20])
         raise ClinicalAIServiceError(
             'clinical_ai_invalid_response', 'Clinical AI returned an invalid assessment.', 502, request_id,
+            reason='schema_mismatch', validation_errors=issues[:20],
         ) from None
     if analysis.triage.requires_human_review is not True:
         logger.warning('Clinical AI response rejected request_id=%s reason=human_review_required', request_id)
         raise ClinicalAIServiceError(
             'clinical_ai_invalid_response', 'Clinical AI returned an invalid assessment.', 502, request_id,
+            reason='human_review_required',
         )
     result = analysis.model_dump()
     result['request_id'] = request_id
