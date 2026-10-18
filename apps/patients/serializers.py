@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from datetime import date
 import time
 from django.db import IntegrityError, OperationalError, transaction
@@ -1019,11 +1020,24 @@ class CpoeOrderSerializer(serializers.ModelSerializer):
         return data
 
 
+class MenstrualPeriodDateField(serializers.DateField):
+    def to_internal_value(self, value):
+        if isinstance(value, str) and 'T' in value:
+            try:
+                parsed = parse_datetime(value)
+            except ValueError:
+                parsed = None
+            if parsed is not None:
+                value = parsed.date().isoformat()
+        return super().to_internal_value(value)
+
+
 class PatientVitalSerializer(serializers.ModelSerializer):
     patientId = serializers.CharField(write_only=True, required=False)
     facilityId = serializers.IntegerField(source='facility_id', required=False)
     visitId = serializers.IntegerField(source='visit_id', required=False, allow_null=True)
     ticketId = serializers.IntegerField(source='ticket_id', required=False, allow_null=True)
+    ticketNumber = serializers.CharField(required=False, allow_null=True, max_length=30, write_only=True)
     capturedById = serializers.IntegerField(source='captured_by_id', required=False, allow_null=True)
     capturedByName = serializers.CharField(source='captured_by_name', required=False, allow_blank=True)
 
@@ -1038,6 +1052,10 @@ class PatientVitalSerializer(serializers.ModelSerializer):
     weightKg = serializers.DecimalField(source='weight_kg', max_digits=5, decimal_places=2, required=False, allow_null=True)
     bmi = serializers.DecimalField(max_digits=4, decimal_places=1, required=False, allow_null=True)
     painScore = serializers.IntegerField(source='pain_score', required=False, allow_null=True)
+    isPregnant = serializers.BooleanField(source='is_pregnant', required=False, allow_null=True)
+    pregnancyMonths = serializers.IntegerField(source='pregnancy_months', required=False, allow_null=True, min_value=0, max_value=10)
+    lastMenstrualPeriod = MenstrualPeriodDateField(source='last_menstrual_period', required=False, allow_null=True)
+    allergies = serializers.CharField(required=False, allow_blank=True)
     recordedAt = serializers.DateTimeField(source='recorded_at', required=False)
 
     class Meta:
@@ -1048,6 +1066,7 @@ class PatientVitalSerializer(serializers.ModelSerializer):
             'patientId',
             'visitId',
             'ticketId',
+            'ticketNumber',
             'capturedById',
             'capturedByName',
             'temperatureC',
@@ -1061,13 +1080,28 @@ class PatientVitalSerializer(serializers.ModelSerializer):
             'weightKg',
             'bmi',
             'painScore',
+            'isPregnant',
+            'pregnancyMonths',
+            'lastMenstrualPeriod',
             'notes',
+            'allergies',
             'recordedAt',
             'is_active',
             'created_at',
             'updated_at',
         ]
         read_only_fields = ['id', 'is_active', 'created_at', 'updated_at']
+
+    def to_internal_value(self, data):
+        data = data.copy()
+        for alias, name in (
+            ('is_pregnant', 'isPregnant'),
+            ('pregnancy_months', 'pregnancyMonths'),
+            ('last_menstrual_period', 'lastMenstrualPeriod'),
+        ):
+            if name not in data and alias in data:
+                data[name] = data[alias]
+        return super().to_internal_value(data)
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
@@ -1106,6 +1140,26 @@ class PatientVitalSerializer(serializers.ModelSerializer):
             attrs['blood_glucose_mmol'] = initial['glucose']
 
         attrs = _resolve_patient_for_write(attrs, self.instance, 'patient vital record')
+        ticket_number = attrs.pop('ticketNumber', serializers.empty)
+        if ticket_number is not serializers.empty:
+            resolved_ticket_id = None
+            if ticket_number is not None:
+                patient = attrs.get('patient', self.instance.patient if self.instance else None)
+                facility_id = attrs.get('facility_id', self.instance.facility_id if self.instance else None)
+                ticket = OutpatientTicket.objects.filter(
+                    ticket_number=ticket_number, patient=patient,
+                    facility_id=facility_id, is_active=True,
+                ).first()
+                if ticket is None:
+                    raise serializers.ValidationError({
+                        'ticketNumber': 'Ticket must belong to the selected patient and facility.',
+                    })
+                resolved_ticket_id = ticket.pk
+            if 'ticket_id' in attrs and attrs['ticket_id'] != resolved_ticket_id:
+                raise serializers.ValidationError({
+                    'ticketNumber': 'ticketNumber and ticketId must refer to the same ticket.',
+                })
+            attrs['ticket_id'] = resolved_ticket_id
         ticket_id = attrs.get('ticket_id', self.instance.ticket_id if self.instance else None)
         if ticket_id is not None:
             patient = attrs.get('patient', self.instance.patient if self.instance else None)
@@ -1121,6 +1175,7 @@ class PatientVitalSerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         data = super().to_representation(instance)
         data['patientId'] = instance.patient.patient_id
+        data['ticketNumber'] = instance.ticket.ticket_number if instance.ticket_id else None
         if instance.captured_by:
             data['capturedBy'] = {
                 'id': instance.captured_by.id,

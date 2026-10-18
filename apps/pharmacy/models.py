@@ -77,6 +77,13 @@ class Prescription(BaseModel):
 	prescription_id = models.CharField(max_length=20)
 	patient_id = models.CharField(max_length=30)
 	doctor_id = models.CharField(max_length=30)
+	outpatient_ticket = models.ForeignKey(
+		'patients.OutpatientTicket',
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='prescriptions',
+	)
 	drugs = models.JSONField(default=list, blank=True)
 	status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Pending')
 	date = models.DateField()

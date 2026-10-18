@@ -1,6 +1,8 @@
 from django.utils import timezone
 from rest_framework import serializers
 
+from patients.models import OutpatientTicket
+
 from .models import LabRequest, LabResult, LabTest
 
 
@@ -67,6 +69,12 @@ class LabRequestSerializer(serializers.ModelSerializer):
     id = serializers.CharField(source='request_id', read_only=True)
     facilityId = serializers.IntegerField(source='facility_id', read_only=True)
     patientId = serializers.CharField(source='patient_id')
+    ticketNumber = serializers.CharField(
+        required=False,
+        allow_null=True,
+        write_only=True,
+        source='ticket_number'
+    )
     testId = serializers.CharField(write_only=True)
     test = serializers.CharField(source='test.name', read_only=True)
     orderedBy_employeeId = serializers.CharField(source='ordered_by_employee_id')
@@ -86,6 +94,7 @@ class LabRequestSerializer(serializers.ModelSerializer):
             'facilityId',
             'patient',
             'patientId',
+            'ticketNumber',
             'testId',
             'test',
             'orderedBy_employeeId',
@@ -122,6 +131,8 @@ class LabRequestSerializer(serializers.ModelSerializer):
         attrs = super().validate(attrs)
 
         test_external_id = attrs.pop('testId', None)
+        ticket_number_provided = 'ticket_number' in attrs
+        ticket_number = attrs.pop('ticket_number', None)
         facility = self.context.get('facility')
 
         if facility is None and self.instance is not None:
@@ -142,6 +153,40 @@ class LabRequestSerializer(serializers.ModelSerializer):
             if test is None:
                 raise serializers.ValidationError({'testId': 'Lab test not found.'})
             attrs['test'] = test
+
+        if ticket_number_provided:
+            if ticket_number is None:
+                attrs['outpatient_ticket'] = None
+            else:
+                outpatient_ticket = OutpatientTicket.objects.select_related('patient').filter(
+                    facility=facility,
+                    ticket_number=ticket_number,
+                    is_active=True,
+                ).first()
+                if outpatient_ticket is None:
+                    raise serializers.ValidationError(
+                        {'ticketNumber': 'Outpatient ticket not found.'}
+                    )
+                attrs['outpatient_ticket'] = outpatient_ticket
+
+        if ticket_number_provided:
+            outpatient_ticket = attrs.get('outpatient_ticket')
+        elif self.instance is not None:
+            outpatient_ticket = self.instance.outpatient_ticket
+        else:
+            outpatient_ticket = None
+
+        patient_id = attrs.get('patient_id')
+        if patient_id is None and self.instance is not None:
+            patient_id = self.instance.patient_id
+
+        if (
+            outpatient_ticket is not None
+            and outpatient_ticket.patient.patient_id != patient_id
+        ):
+            raise serializers.ValidationError(
+                {'ticketNumber': 'Ticket must belong to the selected patient and facility.'}
+            )
 
         if self.instance is None and 'order_date' not in attrs:
             attrs['order_date'] = timezone.localdate()
@@ -186,7 +231,13 @@ class LabRequestSerializer(serializers.ModelSerializer):
         )
 
     def to_representation(self, instance):
-        return super().to_representation(instance)
+        data = super().to_representation(instance)
+        data['ticketNumber'] = (
+            instance.outpatient_ticket.ticket_number
+            if instance.outpatient_ticket_id
+            else None
+        )
+        return data
 
 
 class LabResultSerializer(serializers.ModelSerializer):

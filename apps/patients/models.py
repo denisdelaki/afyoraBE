@@ -123,6 +123,7 @@ class OutpatientTicket(BaseModel):
 
 	DESTINATION_CHOICES = (
 		('reception', 'Reception'),
+		('triage', 'Triage'),
 		('consultation', 'Consultation'),
 		('laboratory', 'Laboratory'),
 		('radiology', 'Radiology'),
@@ -325,6 +326,10 @@ class PatientVital(BaseModel):
 	weight_kg = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
 	bmi = models.DecimalField(max_digits=4, decimal_places=1, null=True, blank=True)
 	pain_score = models.PositiveIntegerField(null=True, blank=True)
+	is_pregnant = models.BooleanField(null=True, blank=True)
+	pregnancy_months = models.PositiveSmallIntegerField(null=True, blank=True)
+	last_menstrual_period = models.DateField(null=True, blank=True)
+	allergies = models.TextField(blank=True)
 	notes = models.TextField(blank=True)
 	recorded_at = models.DateTimeField(default=timezone.now)
 

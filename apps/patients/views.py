@@ -296,6 +296,7 @@ class OutpatientTicketViewSet(viewsets.ModelViewSet):
 	ROLE_BY_DESTINATION = {
 		'reception': {'receptionist'},
 		'consultation': {'doctor', 'nurse'},
+		'triage': {'nurse', 'doctor'},
 		'laboratory': {'lab_technician'},
 		'radiology': {'radiologist'},
 		'pharmacy': {'pharmacist'},

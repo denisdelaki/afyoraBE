@@ -8,7 +8,7 @@ from rest_framework import status
 from rest_framework.exceptions import ValidationError
 
 from core.models import Facility, User
-from patients.models import Patient
+from patients.models import Patient, PatientVital
 from clinical_ai.models import (
     ClinicalAIConsultation,
     ClinicalAIRecommendation,
@@ -256,6 +256,46 @@ class ClinicalAIGatewayTests(SimpleTestCase):
         for identifier in ('PAT-001', '1994-01-01', 'private-doctor', 'RX-private', 'LAB-private', 'IMG-private'):
             self.assertNotIn(identifier, str(payload))
 
+    def test_full_vitals_payload_reaches_analysis(self):
+        serializer = ClinicalAIConsultationRequestSerializer(data={
+            'facilityId': 9, 'patientId': 'PAT0002', 'capturedByName': 'private-staff',
+            'temperatureC': 40, 'systolicBp': 140, 'diastolicBp': 80,
+            'heartRateBpm': 80, 'respiratoryRate': 30, 'spo2Percent': 90,
+            'bloodGlucoseMmol': 8, 'heightCm': 200, 'weightKg': 100,
+            'bmi': 25, 'painScore': 3, 'notes': 'Clinical note', 'allergies': 'peanuts',
+            'lastMenstrualPeriod': '2026-07-15T21:00:00.000Z',
+            'is_pregnant': True, 'pregnancy_months': 2,
+        })
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        payload = build_analysis_payload(Mock(age=32, gender='female'), serializer.validated_data, {})
+        self.assertTrue(payload['is_pregnant'])
+        self.assertEqual(payload['allergies'], ['peanuts'])
+        self.assertEqual(payload['vitals'], {
+            'temperature': 40, 'heart_rate': 80, 'respiratory_rate': 30,
+            'oxygen_saturation': 90, 'blood_pressure': '140/80',
+        })
+        for observation in (
+            'height_cm: 200', 'weight_kg: 100', 'blood_glucose_mmol: 8',
+            'bmi: 25', 'pain_score: 3', 'pregnancy_months: 2',
+            'last_menstrual_period: 2026-07-15', 'notes: Clinical note',
+        ):
+            self.assertIn(observation, payload['observations'])
+        self.assertNotIn('PAT0002', str(payload))
+        self.assertNotIn('private-staff', str(payload))
+
+    def test_nested_pregnancy_vitals_are_validated(self):
+        serializer = ClinicalAIConsultationRequestSerializer(data={
+            'patientId': 'PAT0002',
+            'vitals': {'isPregnant': False, 'painScore': 0, 'pregnancyMonths': 0},
+        })
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertIs(serializer.validated_data['is_pregnant'], False)
+        for field, value in (('isPregnant', 'unknown'), ('pregnancyMonths', -1), ('lastMenstrualPeriod', 'bad-date')):
+            invalid = ClinicalAIConsultationRequestSerializer(data={
+                'patientId': 'PAT0002', 'vitals': {field: value},
+            })
+            self.assertFalse(invalid.is_valid())
+
     def test_payload_uses_chief_complaint_when_symptoms_are_empty_and_rejects_bad_lab_values(self):
         patient = Mock(age=47, gender='female')
         payload = build_analysis_payload(patient, {
@@ -431,6 +471,38 @@ class ClinicalAIApiTestCase(TestCase):
         consultation = ClinicalAIConsultation.objects.get(facility=self.facility1)
         self.assertEqual(consultation.status, 'completed')
         self.assertEqual(consultation.recommendations.count(), 4)
+
+    @override_settings(CLINICAL_AI_BASE_URL='https://clinical.example', CLINICAL_AI_TOKEN='test-token')
+    @patch('clinical_ai.services.ai_gateway.requests.post')
+    def test_consultation_uses_saved_vitals_and_current_overrides(self, post):
+        post.return_value = Mock(status_code=200, json=Mock(return_value=analysis_result()))
+        vital = PatientVital.objects.create(
+            facility=self.facility1, patient=self.patient1,
+            temperature_c=40, systolic_bp=140, diastolic_bp=80,
+            heart_rate_bpm=80, respiratory_rate=30, spo2_percent=90,
+            blood_glucose_mmol=8, height_cm=200, weight_kg=100,
+            bmi=25, pain_score=3, notes='Clinical note', allergies='peanuts',
+            is_pregnant=True, pregnancy_months=2, last_menstrual_period='2026-07-15',
+        )
+        self.client.force_authenticate(user=self.doctor1)
+        for overrides in ({}, {'vitals': {'temperatureC': 38, 'isPregnant': False, 'painScore': 0}}):
+            response = self.client.post(reverse('clinical-ai-consultation'), {
+                'patientId': self.patient1.patient_id, 'symptoms': ['fever'], **overrides,
+            }, format='json')
+            self.assertEqual(response.status_code, 200, response.data)
+            upstream = post.call_args.kwargs['json']
+            self.assertEqual(upstream['vitals']['temperature'], 38 if overrides else 40)
+            self.assertEqual(upstream['is_pregnant'], not bool(overrides))
+            self.assertEqual(upstream['allergies'], ['peanuts'])
+            for observation in (
+                'height_cm: 200', 'weight_kg: 100', 'blood_glucose_mmol: 8',
+                'bmi: 25', 'pregnancy_months: 2',
+                'last_menstrual_period: 2026-07-15', 'notes: Clinical note',
+                'pain_score: 0' if overrides else 'pain_score: 3',
+            ):
+                self.assertIn(observation, upstream['observations'])
+            consultation = ClinicalAIConsultation.objects.latest('id')
+            self.assertEqual(consultation.vitals_snapshot['id'], vital.id)
 
     @patch('clinical_ai.services.ai_gateway.requests.post')
     def test_consultation_requires_explicit_pregnancy_status(self, post):

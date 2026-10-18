@@ -37,7 +37,11 @@ class ClinicalAIConsultationRequestSerializer(serializers.Serializer):
     hepatic_function = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
     def validate_vitals(self, value):
-        if any(isinstance(item, bool) or not isinstance(item, (int, float, str, type(None))) for item in value.values()):
+        if any(
+            (isinstance(item, bool) and key not in ('isPregnant', 'is_pregnant'))
+            or not isinstance(item, (int, float, str, type(None)))
+            for key, item in value.items()
+        ):
             raise serializers.ValidationError('Vital signs must be numbers, strings, or null.')
         return value
 
@@ -56,10 +60,6 @@ class ClinicalAIConsultationRequestSerializer(serializers.Serializer):
                 attrs['is_pregnant'] = True
             elif pregnancy_status in ('no', 'false', 'not pregnant'):
                 attrs['is_pregnant'] = False
-            else:
-                raise serializers.ValidationError({
-                    'is_pregnant': 'Provide an explicit pregnancy status as a boolean.'
-                })
         return attrs
 
     def to_internal_value(self, data):
@@ -88,6 +88,33 @@ class ClinicalAIConsultationRequestSerializer(serializers.Serializer):
             data_dict['imaging_reports'] = data_dict['imagingReports']
         if 'imaging_reports' not in data_dict and 'radiology' in data_dict:
             data_dict['imaging_reports'] = data_dict['radiology']
+
+        from patients.serializers import PatientVitalSerializer
+
+        vital_fields = (
+            'temperatureC', 'systolicBp', 'diastolicBp', 'heartRateBpm',
+            'respiratoryRate', 'spo2Percent', 'bloodGlucoseMmol', 'heightCm',
+            'weightKg', 'bmi', 'painScore', 'notes', 'allergies',
+            'lastMenstrualPeriod', 'last_menstrual_period', 'isPregnant',
+            'is_pregnant', 'pregnancyMonths', 'pregnancy_months',
+        )
+        vitals = data_dict.get('vitals', {})
+        if isinstance(vitals, dict):
+            vitals = {**{key: data_dict[key] for key in vital_fields if key in data_dict}, **vitals}
+            vital_serializer = PatientVitalSerializer(data=vitals, partial=True)
+            for name, field in vital_serializer.fields.items():
+                if name not in vital_fields:
+                    continue
+                value = vitals.get(name, vitals.get(field.source, serializers.empty))
+                if value is not serializers.empty:
+                    try:
+                        normalized = field.run_validation(value)
+                    except serializers.ValidationError as exc:
+                        raise serializers.ValidationError({'vitals': {name: exc.detail}}) from exc
+                    vitals[name] = field.to_representation(normalized) if normalized is not None else None
+            data_dict['vitals'] = vitals
+            if data_dict.get('is_pregnant') is None and vitals.get('isPregnant') is not None:
+                data_dict['is_pregnant'] = vitals['isPregnant']
 
         ret = super().to_internal_value(data_dict)
         if not ret.get('patient_id'):

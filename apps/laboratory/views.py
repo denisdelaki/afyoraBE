@@ -138,7 +138,10 @@ class LabRequestViewSet(FacilityScopedLaboratoryViewSet):
 		if facility is None:
 			raise ValidationError({'facilityId': 'Facility not found.'})
 
-		queryset = LabRequest.objects.filter(facility=facility, is_active=True)
+		queryset = LabRequest.objects.filter(
+			facility=facility,
+			is_active=True,
+		).select_related('outpatient_ticket')
 
 		patient_id = self.request.query_params.get('patientId')
 		if patient_id:

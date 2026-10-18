@@ -86,6 +86,14 @@ class FacilityScopedPharmacyViewSet(viewsets.ModelViewSet):
 		if request.user and request.user.is_authenticated:
 			check_module_permission(request.user, self.MODULE_KEY, request=request)
 
+	def get_serializer_context(self):
+		context = super().get_serializer_context()
+		facility = self._get_target_facility()
+		if facility is None:
+			raise ValidationError({'facilityId': 'Facility not found.'})
+		context['facility'] = facility
+		return context
+
 
 	@staticmethod
 	def _parse_facility_id(value, error_message):
@@ -323,7 +331,7 @@ class PrescriptionViewSet(FacilityScopedPharmacyViewSet):
 		if facility is None:
 			raise ValidationError({'facilityId': 'Facility not found.'})
 
-		queryset = Prescription.objects.filter(facility=facility)
+		queryset = Prescription.objects.filter(facility=facility).select_related('outpatient_ticket')
 		if not include_inactive:
 			queryset = queryset.filter(is_active=True)
 

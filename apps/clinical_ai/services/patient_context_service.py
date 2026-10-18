@@ -3,7 +3,8 @@ from typing import Dict, Any, List
 from django.utils import timezone
 from datetime import timedelta
 
-from patients.models import Patient, EhrRecord, ProblemItem, AllergyItem
+from patients.models import Patient, EhrRecord, ProblemItem, AllergyItem, PatientVital
+from patients.serializers import PatientVitalSerializer
 from pharmacy.models import Prescription
 from laboratory.models import LabRequest, LabResult
 from radiology.models import ImagingRequest, ImagingReport
@@ -155,7 +156,12 @@ def get_patient_clinical_context(patient: Patient, facility_id: int, max_months:
             'status': rep.status,
         })
 
+    latest_vital = PatientVital.objects.filter(
+        facility_id=facility_id, patient=patient, is_active=True,
+    ).first()
+
     return {
+        'latest_vitals': dict(PatientVitalSerializer(latest_vital).data) if latest_vital else {},
         'demographics': demographics,
         'allergies': allergies,
         'active_problems': problems,

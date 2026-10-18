@@ -55,6 +55,13 @@ class LabRequest(BaseModel):
 		on_delete=models.PROTECT,
 		related_name='requests',
 	)
+	outpatient_ticket = models.ForeignKey(
+		'patients.OutpatientTicket',
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name='lab_requests',
+	)
 	ordered_by_employee_id = models.CharField(max_length=50)
 	ordered_by = models.CharField(max_length=150)
 	order_date = models.DateField()

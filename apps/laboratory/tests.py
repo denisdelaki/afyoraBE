@@ -3,6 +3,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from core.models import Facility
+from patients.models import OutpatientTicket, Patient
 from .models import LabRequest, LabResult, LabTest
 
 
@@ -33,6 +34,17 @@ class LaboratoryApiTests(APITestCase):
 			duration='30 mins',
 			price=1500.00,
 		)
+		self.patient = Patient.objects.create(
+			facility=self.facility,
+			patient_id='P-100',
+			first_name='John',
+			last_name='Doe',
+		)
+		self.outpatient_ticket = OutpatientTicket.objects.create(
+			facility=self.facility,
+			patient=self.patient,
+			ticket_number='OP-20261018-001',
+		)
 		self.request_obj = LabRequest.objects.create(
 			facility=self.facility,
 			request_id='LAB-001',
@@ -45,6 +57,101 @@ class LaboratoryApiTests(APITestCase):
 			status='Pending',
 			priority='Routine',
 		)
+
+	def _lab_request_payload(self, **overrides):
+		payload = {
+			'patient': 'John Doe',
+			'patientId': self.patient.patient_id,
+			'testId': self.test_obj.test_id,
+			'orderedBy_employeeId': 'EMP-001',
+			'orderedBy': 'Dr. Smith',
+		}
+		payload.update(overrides)
+		return payload
+
+	def test_create_lab_request_with_optional_ticket_number(self):
+		response = self.client.post(
+			f'/api/laboratory/requests/?facilityId={self.facility.id}',
+			self._lab_request_payload(ticketNumber=self.outpatient_ticket.ticket_number),
+			format='json',
+		)
+
+		self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+		request_obj = LabRequest.objects.get(request_id=response.data['id'])
+		self.assertEqual(request_obj.outpatient_ticket, self.outpatient_ticket)
+		self.assertEqual(response.data['ticketNumber'], self.outpatient_ticket.ticket_number)
+
+	def test_create_lab_request_compat_endpoint_with_frontend_aliases_and_ticket(self):
+		response = self.client.post(
+			f'/api/laboratory/labrequest/?facilityId={self.facility.id}',
+			{
+				'patient': self.patient.patient_id,
+				'patientId': self.patient.patient_id,
+				'ticketNumber': self.outpatient_ticket.ticket_number,
+				'test': self.test_obj.test_id,
+				'priority': 'Routine',
+				'notes': 'bbj',
+				'orderedBy': 'EMP003',
+				'facilityId': str(self.facility.id),
+			},
+			format='json',
+		)
+
+		self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+		request_obj = LabRequest.objects.get(request_id=response.data['id'])
+		self.assertEqual(request_obj.outpatient_ticket, self.outpatient_ticket)
+		self.assertEqual(request_obj.test, self.test_obj)
+		self.assertEqual(request_obj.ordered_by_employee_id, 'EMP003')
+		self.assertEqual(response.data['ticketNumber'], self.outpatient_ticket.ticket_number)
+
+	def test_patch_lab_request_can_clear_ticket_number(self):
+		self.request_obj.outpatient_ticket = self.outpatient_ticket
+		self.request_obj.save(update_fields=['outpatient_ticket'])
+
+		response = self.client.patch(
+			f'/api/laboratory/labrequest/{self.request_obj.request_id}/?facilityId={self.facility.id}',
+			{'ticketNumber': None},
+			format='json',
+		)
+
+		self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+		self.request_obj.refresh_from_db()
+		self.assertIsNone(self.request_obj.outpatient_ticket)
+		self.assertIsNone(response.data['ticketNumber'])
+
+	def test_create_lab_request_without_ticket_number_remains_supported(self):
+		response = self.client.post(
+			f'/api/laboratory/requests/?facilityId={self.facility.id}',
+			self._lab_request_payload(),
+			format='json',
+		)
+
+		self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+		request_obj = LabRequest.objects.get(request_id=response.data['id'])
+		self.assertIsNone(request_obj.outpatient_ticket)
+		self.assertIsNone(response.data['ticketNumber'])
+
+	def test_create_lab_request_rejects_ticket_for_a_different_patient(self):
+		other_patient = Patient.objects.create(
+			facility=self.facility,
+			patient_id='P-200',
+			first_name='Jane',
+			last_name='Doe',
+		)
+		other_ticket = OutpatientTicket.objects.create(
+			facility=self.facility,
+			patient=other_patient,
+			ticket_number='OP-20261018-002',
+		)
+
+		response = self.client.post(
+			f'/api/laboratory/requests/?facilityId={self.facility.id}',
+			self._lab_request_payload(ticketNumber=other_ticket.ticket_number),
+			format='json',
+		)
+
+		self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+		self.assertIn('ticketNumber', response.data)
 
 	def test_labresult_compat_endpoint_post(self):
 		url = f'/api/laboratory/labresult/?facilityId={self.facility.id}'

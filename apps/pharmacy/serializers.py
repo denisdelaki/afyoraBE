@@ -2,6 +2,8 @@ from rest_framework import serializers
 
 from django.utils import timezone
 
+from patients.models import OutpatientTicket
+
 from .models import Drug, DrugCategory, DrugPurchaseOrder, DrugPurchaseOrderItem, Prescription
 
 
@@ -160,6 +162,13 @@ class PrescriptionSerializer(serializers.ModelSerializer):
     facilityId = serializers.IntegerField(source='facility_id', read_only=True)
     patientId = serializers.CharField(source='patient_id')
     doctorId = serializers.CharField(source='doctor_id')
+    ticketNumber = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        max_length=30,
+        write_only=True,
+    )
     drugs = PrescriptionDrugItemSerializer(many=True, required=False, default=list)
     date = serializers.DateField(required=False)
 
@@ -170,6 +179,7 @@ class PrescriptionSerializer(serializers.ModelSerializer):
             'facilityId',
             'patientId',
             'doctorId',
+            'ticketNumber',
             'drugs',
             'status',
             'date',
@@ -186,6 +196,47 @@ class PrescriptionSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
+
+        ticket_number = attrs.pop('ticketNumber', serializers.empty)
+        if ticket_number is not serializers.empty:
+            if ticket_number in (None, ''):
+                attrs['outpatient_ticket'] = None
+            else:
+                facility = self.context.get('facility')
+                if facility is None:
+                    raise serializers.ValidationError(
+                        {'ticketNumber': 'Unable to determine the target facility.'}
+                    )
+
+                ticket = OutpatientTicket.objects.select_related('patient').filter(
+                    facility=facility,
+                    ticket_number=ticket_number,
+                    is_active=True,
+                ).first()
+                if ticket is None:
+                    raise serializers.ValidationError({
+                        'ticketNumber': (
+                            'No active outpatient ticket with this ticketNumber exists '
+                            'for the selected facility.'
+                        )
+                    })
+                attrs['outpatient_ticket'] = ticket
+
+        ticket = attrs.get(
+            'outpatient_ticket',
+            self.instance.outpatient_ticket if self.instance else None,
+        )
+        if ticket is not None:
+            patient_id = attrs.get(
+                'patient_id',
+                self.instance.patient_id if self.instance else None,
+            )
+            if ticket.patient.patient_id != patient_id:
+                raise serializers.ValidationError({
+                    'ticketNumber': (
+                        'Ticket must belong to the prescription patient and selected facility.'
+                    )
+                })
 
         if self.instance is None and 'date' not in attrs:
             attrs['date'] = timezone.now().date()
@@ -225,6 +276,15 @@ class PrescriptionSerializer(serializers.ModelSerializer):
             prescription_id=prescription_id,
             **validated_data,
         )
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data['ticketNumber'] = (
+            instance.outpatient_ticket.ticket_number
+            if instance.outpatient_ticket_id
+            else None
+        )
+        return data
 
 
 class DrugPurchaseOrderItemSerializer(serializers.ModelSerializer):

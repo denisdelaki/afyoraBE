@@ -7,7 +7,9 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from core.models import Facility
-from .models import Drug
+from patients.models import OutpatientTicket, Patient
+
+from .models import Drug, Prescription
 
 
 class DrugTerminologyApiTests(APITestCase):
@@ -153,3 +155,124 @@ class DrugTerminologyApiTests(APITestCase):
 		self.assertEqual(result.data['data'], [])
 		self.assertEqual(result.data['source'], 'unavailable')
 		self.assertIn('uncoded', result.data['detail'])
+
+
+class PrescriptionTicketApiTests(APITestCase):
+	def setUp(self):
+		self.facility = Facility.objects.create(
+			name='Prescription Ticket Facility',
+			facility_type='hospital',
+			registration_number='RX-TICKET-001',
+			email='rx-ticket@example.com',
+			phone='+254700000002',
+		)
+		self.user = get_user_model().objects.create_user(
+			username='prescription-admin',
+			email='prescription-admin@example.com',
+			password='Password123!',
+			facility=self.facility,
+			role='facility_admin',
+		)
+		self.patient = Patient.objects.create(
+			facility=self.facility,
+			patient_id='PAT-RX-001',
+			first_name='Prescription',
+			last_name='Patient',
+		)
+		self.ticket = OutpatientTicket.objects.create(
+			facility=self.facility,
+			patient=self.patient,
+			ticket_number='OP-RX-001',
+			destination='pharmacy',
+		)
+		self.client.force_authenticate(user=self.user)
+
+	def _payload(self, **overrides):
+		payload = {
+			'patientId': self.patient.patient_id,
+			'doctorId': 'DOC-RX-001',
+			'drugs': [
+				{'id': 'D001', 'name': 'Paracetamol', 'quantity': 2, 'dosage': '500mg'},
+			],
+		}
+		payload.update(overrides)
+		return payload
+
+	def test_create_prescription_accepts_optional_ticket_number(self):
+		response = self.client.post(
+			'/api/pharmacy/prescriptions/',
+			self._payload(ticketNumber=self.ticket.ticket_number),
+			format='json',
+		)
+
+		self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+		prescription = Prescription.objects.get()
+		self.assertEqual(prescription.outpatient_ticket_id, self.ticket.id)
+		self.assertEqual(response.data['ticketNumber'], self.ticket.ticket_number)
+
+	def test_create_prescription_without_ticket_number_remains_supported(self):
+		response = self.client.post(
+			'/api/pharmacy/prescriptions/',
+			self._payload(),
+			format='json',
+		)
+
+		self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+		prescription = Prescription.objects.get()
+		self.assertIsNone(prescription.outpatient_ticket_id)
+		self.assertIsNone(response.data['ticketNumber'])
+
+	def test_create_prescription_rejects_ticket_for_a_different_patient(self):
+		other_patient = Patient.objects.create(
+			facility=self.facility,
+			patient_id='PAT-RX-OTHER',
+			first_name='Other',
+			last_name='Patient',
+		)
+		other_ticket = OutpatientTicket.objects.create(
+			facility=self.facility,
+			patient=other_patient,
+			ticket_number='OP-RX-OTHER',
+			destination='pharmacy',
+		)
+
+		response = self.client.post(
+			'/api/pharmacy/prescriptions/',
+			self._payload(ticketNumber=other_ticket.ticket_number),
+			format='json',
+		)
+
+		self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+		self.assertIn('ticketNumber', response.data)
+		self.assertFalse(Prescription.objects.exists())
+
+	def test_create_prescription_does_not_resolve_same_number_from_another_facility(self):
+		other_facility = Facility.objects.create(
+			name='Other Prescription Facility',
+			facility_type='hospital',
+			registration_number='RX-TICKET-002',
+			email='rx-ticket-other@example.com',
+			phone='+254700000003',
+		)
+		other_patient = Patient.objects.create(
+			facility=other_facility,
+			patient_id='PAT-RX-FACILITY-OTHER',
+			first_name='Other',
+			last_name='Facility',
+		)
+		OutpatientTicket.objects.create(
+			facility=other_facility,
+			patient=other_patient,
+			ticket_number='OP-RX-CROSS-FACILITY',
+			destination='pharmacy',
+		)
+
+		response = self.client.post(
+			'/api/pharmacy/prescriptions/',
+			self._payload(ticketNumber='OP-RX-CROSS-FACILITY'),
+			format='json',
+		)
+
+		self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+		self.assertIn('ticketNumber', response.data)
+		self.assertFalse(Prescription.objects.exists())

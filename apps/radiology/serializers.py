@@ -1,6 +1,8 @@
 from django.utils import timezone
 from rest_framework import serializers
 
+from patients.models import OutpatientTicket
+
 from .models import ImagingRequest, ImagingReport, ImagingStudy, ImagingImage
 
 
@@ -60,6 +62,12 @@ class ImagingRequestSerializer(serializers.ModelSerializer):
     id = serializers.CharField(source='request_id', read_only=True)
     facilityId = serializers.IntegerField(source='facility_id', read_only=True)
     patientId = serializers.CharField(source='patient_id')
+    ticketNumber = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        allow_null=True,
+        write_only=True,
+    )
     studyId = serializers.CharField(write_only=True)
     studyName = serializers.CharField(source='study.name', read_only=True)
     orderedBy = serializers.CharField(source='ordered_by')
@@ -72,6 +80,7 @@ class ImagingRequestSerializer(serializers.ModelSerializer):
             'facilityId',
             'patient',
             'patientId',
+            'ticketNumber',
             'studyId',
             'studyName',
             'orderedBy',
@@ -84,6 +93,39 @@ class ImagingRequestSerializer(serializers.ModelSerializer):
             'updated_at',
         ]
         read_only_fields = ['id', 'facilityId', 'is_active', 'created_at', 'updated_at']
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        ticket_number = attrs.pop('ticketNumber', serializers.empty)
+
+        if ticket_number is serializers.empty:
+            return attrs
+
+        if ticket_number is None:
+            attrs['outpatient_ticket'] = None
+            return attrs
+
+        facility = self.context.get('facility')
+        if facility is None and self.instance is not None:
+            facility = self.instance.facility
+
+        patient_id = attrs.get('patient_id')
+        if patient_id is None and self.instance is not None:
+            patient_id = self.instance.patient_id
+
+        ticket = OutpatientTicket.objects.filter(
+            facility=facility,
+            ticket_number=ticket_number,
+            patient__patient_id=patient_id,
+            is_active=True,
+        ).first()
+        if ticket is None:
+            raise serializers.ValidationError({
+                'ticketNumber': 'Outpatient ticket not found for the selected patient and facility.',
+            })
+
+        attrs['outpatient_ticket'] = ticket
+        return attrs
 
     def create(self, validated_data):
         facility = validated_data.pop('facility', None) or self.context.get('facility')
@@ -157,6 +199,15 @@ class ImagingRequestSerializer(serializers.ModelSerializer):
             setattr(instance, attr, value)
         instance.save()
         return instance
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data['ticketNumber'] = (
+            instance.outpatient_ticket.ticket_number
+            if instance.outpatient_ticket_id
+            else None
+        )
+        return data
 
 
 class ImagingReportSerializer(serializers.ModelSerializer):

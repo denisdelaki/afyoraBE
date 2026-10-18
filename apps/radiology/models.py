@@ -56,6 +56,13 @@ class ImagingRequest(BaseModel):
     request_id = models.CharField(max_length=20)
     patient = models.CharField(max_length=255)
     patient_id = models.CharField(max_length=30)
+    outpatient_ticket = models.ForeignKey(
+        'patients.OutpatientTicket',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='imaging_requests',
+    )
     study = models.ForeignKey(
         ImagingStudy,
         on_delete=models.PROTECT,

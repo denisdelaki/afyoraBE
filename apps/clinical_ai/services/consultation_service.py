@@ -28,15 +28,18 @@ def build_analysis_payload(patient, data, context):
     observations = [item for item in data.get('observations', []) if item]
     if chief_complaint and chief_complaint not in symptoms:
         observations.append(chief_complaint)
-    for field in ('breastfeeding', 'weight_kg', 'renal_function', 'hepatic_function'):
+    for field in ('breastfeeding', 'renal_function', 'hepatic_function'):
         if data.get(field) is not None:
             observations.append(f'{field}: {data[field]}')
     pregnancy_status = str(data.get('pregnancy_status') or '').strip().lower()
+    incoming_vitals = {**context.get('latest_vitals', {}), **data.get('vitals', {})}
     is_pregnant = data.get('is_pregnant')
     if is_pregnant is None and pregnancy_status in ('yes', 'true', 'pregnant'):
         is_pregnant = True
     elif is_pregnant is None and pregnancy_status in ('no', 'false', 'not pregnant'):
         is_pregnant = False
+    if is_pregnant is None:
+        is_pregnant = incoming_vitals.get('isPregnant', incoming_vitals.get('is_pregnant'))
     age = patient.age
     if age is not None and not 0 <= age <= 130:
         raise ValidationError({'age': 'Patient age must be between 0 and 130.'})
@@ -135,7 +138,6 @@ def build_analysis_payload(patient, data, context):
                     mapped.append(': '.join(details[:3]) + ('. ' + '; '.join(details[3:]) if len(details) > 3 else ''))
         return mapped
 
-    incoming_vitals = data.get('vitals', {})
     vital_aliases = {
         'temperature': ('temperature', 'temperatureC', 'temperature_c'),
         'heart_rate': ('heart_rate', 'heartRateBpm', 'heartRate', 'heart_rate_bpm'),
@@ -162,7 +164,7 @@ def build_analysis_payload(patient, data, context):
         data.get('weight_kg') if data.get('weight_kg') is not None else first_value(incoming_vitals, 'weight_kg', 'weightKg'),
         'weight',
     )
-    if weight is not None and data.get('weight_kg') is None:
+    if weight is not None:
         observations.append(f'weight_kg: {weight}')
     glucose = normalized_number(
         first_value(incoming_vitals, 'blood_glucose', 'blood_glucose_mmol', 'bloodGlucoseMmol', 'bloodGlucose'),
@@ -170,6 +172,29 @@ def build_analysis_payload(patient, data, context):
     )
     if glucose is not None:
         observations.append(f'blood_glucose_mmol: {glucose}')
+
+    for output_name, aliases in (
+        ('bmi', ('bmi',)),
+        ('pain_score', ('painScore', 'pain_score')),
+        ('pregnancy_months', ('pregnancyMonths', 'pregnancy_months')),
+    ):
+        value = normalized_number(first_value(incoming_vitals, *aliases), output_name)
+        if value is not None:
+            observations.append(f'{output_name}: {value}')
+    for output_name, aliases in (
+        ('last_menstrual_period', ('lastMenstrualPeriod', 'last_menstrual_period')),
+        ('notes', ('notes',)),
+    ):
+        value = first_value(incoming_vitals, *aliases)
+        if value:
+            observations.append(f'{output_name}: {value}')
+
+    allergies = [
+        '; '.join(str(allergy[key]) for key in ('allergen_name', 'reaction', 'severity') if allergy.get(key))
+        for allergy in context.get('allergies', []) if allergy.get('allergen_name')
+    ]
+    if incoming_vitals.get('allergies') and incoming_vitals['allergies'] not in allergies:
+        allergies.append(incoming_vitals['allergies'])
 
     lab_results = first_value(data, 'laboratory_results', 'laboratoryResults', 'labs') or context.get('recent_lab_results', [])
     imaging_results = first_value(data, 'imaging_reports', 'imagingReports', 'radiology') or context.get('recent_imaging_reports', [])
@@ -180,10 +205,7 @@ def build_analysis_payload(patient, data, context):
         'is_pregnant': is_pregnant,
         'symptoms': symptoms,
         'medical_history': [problem['display'] for problem in context.get('active_problems', []) if problem.get('display')],
-        'allergies': [
-            '; '.join(str(allergy[key]) for key in ('allergen_name', 'reaction', 'severity') if allergy.get(key))
-            for allergy in context.get('allergies', []) if allergy.get('allergen_name')
-        ],
+        'allergies': allergies,
         'current_medications': medications,
         'vitals': vitals,
         'labs': map_labs(lab_results),
@@ -340,6 +362,11 @@ def run_clinical_ai_consultation(
     )
 
     analysis_payload = build_analysis_payload(patient, data, patient_context)
+    if analysis_payload['is_pregnant'] is None:
+        raise ValidationError({
+            'is_pregnant': 'Provide an explicit pregnancy status as a boolean.',
+        })
+    vitals = {**patient_context.get('latest_vitals', {}), **vitals}
 
     # Compute SHA-256 hash of payload
     request_bytes = json.dumps(analysis_payload, sort_keys=True).encode('utf-8')

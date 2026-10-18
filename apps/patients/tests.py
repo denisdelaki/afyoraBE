@@ -472,6 +472,9 @@ class PatientVitalAPITests(TestCase):
 			'heightCm': 175.0,
 			'weightKg': 70.0,
 			'painScore': 2,
+			'isPregnant': False,
+			'lastMenstrualPeriod': '2024-06-01',
+			'allergies': 'Peanuts',
 			'notes': 'Patient resting comfortably.',
 		}
 
@@ -489,6 +492,34 @@ class PatientVitalAPITests(TestCase):
 		self.assertEqual(vital.systolic_bp, 120)
 		self.assertEqual(vital.diastolic_bp, 80)
 		self.assertEqual(float(vital.bmi), 22.9)  # auto-computed 70 / (1.75^2)
+
+	def test_nested_vitals_preserve_pregnancy_and_allergies(self):
+		self.client.force_authenticate(user=self.nurse_jane)
+		url = f'/api/patients/{self.patient.patient_id}/vitals/'
+		payload = {
+			'facilityId': self.facility1.id, 'patientId': self.patient.patient_id,
+			'capturedByName': 'denisdelaki', 'temperatureC': 40,
+			'systolicBp': 140, 'diastolicBp': 80, 'heartRateBpm': 80,
+			'respiratoryRate': 30, 'spo2Percent': 90, 'bloodGlucoseMmol': 8,
+			'heightCm': 200, 'weightKg': 100, 'bmi': 25, 'painScore': 3,
+			'notes': 'dfdsssd', 'allergies': 'peanuts',
+			'lastMenstrualPeriod': '2026-07-15T21:00:00.000Z',
+			'is_pregnant': True, 'pregnancy_months': 2,
+		}
+		response = self.client.post(url, payload, format='json')
+		self.assertEqual(response.status_code, 201, response.data)
+		vital = PatientVital.objects.get(pk=response.data['id'])
+		self.assertTrue(vital.is_pregnant)
+		self.assertEqual(vital.pregnancy_months, 2)
+		self.assertEqual(vital.allergies, 'peanuts')
+		fetched = self.client.get(f'{url}?facilityId={self.facility1.id}')
+		self.assertEqual(fetched.status_code, 200, fetched.data)
+		for result in (response.data, fetched.data['results'][0]):
+			self.assertEqual(result['allergies'], 'peanuts')
+			self.assertEqual(result['lastMenstrualPeriod'], '2026-07-15')
+			self.assertTrue(result['isPregnant'])
+			self.assertEqual(result['pregnancyMonths'], 2)
+			self.assertEqual(result['capturedByName'], 'denisdelaki')
 
 	def test_fetch_vitals_for_patient(self):
 		self.client.force_authenticate(user=self.doctor_bob)
@@ -536,7 +567,7 @@ class PatientVitalAPITests(TestCase):
 		PatientVital.objects.create(facility=self.facility1, patient=self.patient, systolic_bp=140)
 		response = self.client.post(
 			f'/api/patients/{self.patient.patient_id}/vitals/',
-			{'facilityId': self.facility1.id, 'ticketId': str(ticket.id), 'painScore': 0},
+			{'facilityId': self.facility1.id, 'ticketId': str(ticket.id), 'painScore': 0, 'isPregnant': False, 'lastMenstrualPeriod': '2024-06-01', 'allergies': 'Peanuts'},
 			format='json',
 		)
 		self.assertEqual(response.status_code, 201, response.data)
@@ -544,6 +575,7 @@ class PatientVitalAPITests(TestCase):
 		self.assertEqual(vital.ticket, ticket)
 		self.assertIsNone(vital.visit)
 		self.assertEqual(vital.pain_score, 0)
+		self.assertEqual(response.data['ticketNumber'], ticket.ticket_number)
 		for endpoint in ('/api/patients/vitals/', f'/api/patients/{self.patient.patient_id}/vitals/'):
 			fetched = self.client.get(
 				f'{endpoint}?facilityId={self.facility1.id}&patientId={self.patient.patient_id}&ticketId={ticket.id}',
@@ -552,6 +584,70 @@ class PatientVitalAPITests(TestCase):
 			self.assertEqual(fetched.data['count'], 1)
 			self.assertEqual(fetched.data['results'][0]['id'], vital.id)
 			self.assertEqual(fetched.data['results'][0]['ticketId'], ticket.id)
+			self.assertEqual(fetched.data['results'][0]['ticketNumber'], ticket.ticket_number)
+
+	def test_create_and_update_vitals_by_ticket_number(self):
+		self.client.force_authenticate(user=self.nurse_jane)
+		ticket = OutpatientTicket.objects.create(
+			facility=self.facility1, patient=self.patient, ticket_number='VITAL-NUMBER',
+		)
+		response = self.client.post(
+			f'/api/patients/{self.patient.patient_id}/vitals/',
+			{'facilityId': self.facility1.id, 'ticketNumber': ticket.ticket_number},
+			format='json',
+		)
+		self.assertEqual(response.status_code, 201, response.data)
+		self.assertEqual(response.data['ticketId'], ticket.id)
+		self.assertEqual(response.data['ticketNumber'], ticket.ticket_number)
+		vital = PatientVital.objects.get(pk=response.data['id'])
+		self.assertEqual(vital.ticket_id, ticket.id)
+		url = f'/api/patients/vitals/{vital.id}/?facilityId={self.facility1.id}'
+		unchanged = self.client.patch(url, {'painScore': 0}, format='json')
+		self.assertEqual(unchanged.status_code, 200, unchanged.data)
+		self.assertEqual(unchanged.data['ticketNumber'], ticket.ticket_number)
+		cleared = self.client.patch(url, {'ticketNumber': None}, format='json')
+		self.assertEqual(cleared.status_code, 200, cleared.data)
+		self.assertIsNone(cleared.data['ticketId'])
+		self.assertIsNone(cleared.data['ticketNumber'])
+		relinked = self.client.patch(url, {
+			'ticketNumber': ticket.ticket_number, 'ticketId': ticket.id,
+		}, format='json')
+		self.assertEqual(relinked.status_code, 200, relinked.data)
+		self.assertEqual(relinked.data['ticketNumber'], ticket.ticket_number)
+
+	def test_reject_invalid_or_conflicting_ticket_number(self):
+		self.client.force_authenticate(user=self.nurse_jane)
+		other_patient = Patient.objects.create(
+			facility=self.facility1, patient_id='PAT-NUMBER-OTHER', first_name='Other', last_name='Patient',
+		)
+		ticket = OutpatientTicket.objects.create(
+			facility=self.facility1, patient=self.patient, ticket_number='NUMBER-VALID',
+		)
+		other_ticket = OutpatientTicket.objects.create(
+			facility=self.facility1, patient=other_patient, ticket_number='NUMBER-OTHER',
+		)
+		inactive_ticket = OutpatientTicket.objects.create(
+			facility=self.facility1, patient=self.patient, ticket_number='NUMBER-INACTIVE', is_active=False,
+		)
+		foreign_ticket = OutpatientTicket.objects.create(
+			facility=self.facility2, patient=self.patient, ticket_number='NUMBER-FOREIGN',
+		)
+		for extra in (
+			{'ticketNumber': 'MISSING'},
+			{'ticketNumber': other_ticket.ticket_number},
+			{'ticketNumber': inactive_ticket.ticket_number},
+			{'ticketNumber': foreign_ticket.ticket_number},
+			{'ticketNumber': ticket.ticket_number, 'ticketId': other_ticket.id},
+			{'ticketNumber': ticket.ticket_number, 'ticketId': None},
+			{'ticketNumber': None, 'ticketId': ticket.id},
+		):
+			with self.subTest(extra=extra):
+				response = self.client.post('/api/patients/vitals/', {
+					'facilityId': self.facility1.id, 'patientId': self.patient.patient_id, **extra,
+				}, format='json')
+				self.assertEqual(response.status_code, 400, response.data)
+				self.assertIn('ticketNumber', response.data)
+		self.assertEqual(PatientVital.objects.count(), 0)
 
 	def test_reject_vitals_for_another_patients_ticket(self):
 		self.client.force_authenticate(user=self.nurse_jane)
