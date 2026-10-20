@@ -21,7 +21,10 @@ from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from .models import User, Facility, Department, FacilityOnboarding, AuditLog, EmailOTP, FacilityRole, FacilitySubscriptionPayment, ALL_MODULE_PERMISSIONS
 from .utils import generate_and_send_otp, AuthRateThrottle
-from .knhts import KnhtsServiceError, lookup_concept, lookup_from_url, search_concepts, search_from_url
+from .knhts import (
+    KnhtsServiceError, cache_concepts, lookup_cached_concept, lookup_concept,
+    lookup_from_url, search_cached_concepts, search_concepts, search_from_url,
+)
 from .serializers import (
     SignupSerializer, LoginSerializer, SignupResponseSerializer,
     LoginResponseSerializer, UserSerializer, UserDetailSerializer,
@@ -136,6 +139,15 @@ class KnhtsConceptView(APIView):
             )
 
         # ── Tier 1: official KNHTS FHIR server ──────────────────────────────
+        if search:
+            concepts = search_cached_concepts(search)
+            if concepts:
+                return Response({'data': concepts, 'source': 'cache'})
+        else:
+            concept = lookup_cached_concept(system or 'KNHTS', code)
+            if concept:
+                return Response({'data': [concept], 'source': 'cache'})
+
         try:
             if search:
                 concepts = search_concepts(search)
@@ -143,6 +155,7 @@ class KnhtsConceptView(APIView):
                 concept  = lookup_concept(system or 'KNHTS', code)
                 concepts = [concept] if concept else []
 
+            cache_concepts(concepts)
             return Response({'data': concepts, 'source': 'knhts'})
 
         except KnhtsServiceError:
@@ -170,6 +183,7 @@ class KnhtsConceptView(APIView):
                     )
                     concepts = [concept] if concept else []
 
+                cache_concepts(concepts)
                 return Response({'data': concepts, 'source': 'fallback_fhir'})
 
             except KnhtsServiceError:

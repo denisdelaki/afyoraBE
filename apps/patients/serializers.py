@@ -126,6 +126,9 @@ class PrescriptionItemSerializer(serializers.Serializer):
     drugs = DrugSerializer(many=True, default=list)
     status = serializers.CharField(required=False, allow_blank=True, default='Pending')
     date = serializers.DateField(required=False, allow_null=True, default=None)
+    ticketNumber = serializers.CharField(required=False, allow_blank=True, allow_null=True, max_length=30)
+    dhaVerified = serializers.BooleanField(required=False, default=False)
+    dhaConsentToken = serializers.CharField(required=False, allow_blank=True, allow_null=True, default='')
 
 
 class PatientSerializer(serializers.ModelSerializer):
@@ -349,7 +352,11 @@ class PatientVisitSerializer(serializers.ModelSerializer):
                 'drugs': normalized_drugs,
                 'status': item.get('status', 'Pending'),
                 'date': item['date'].isoformat() if item.get('date') is not None else None,
+                'dhaVerified': item.get('dhaVerified', False),
+                'dhaConsentToken': item.get('dhaConsentToken', ''),
             }
+            if 'ticketNumber' in item:
+                entry['ticketNumber'] = item['ticketNumber']
             result.append(entry)
         return result
 
@@ -396,6 +403,30 @@ class PatientVisitSerializer(serializers.ModelSerializer):
                     {'patientId': 'Patient not found for the provided facilityId.'}
                 )
             attrs['patient'] = patient
+
+        target_patient = attrs.get('patient', self.instance.patient if self.instance else None)
+        for index, item in enumerate(attrs.get('prescriptions', [])):
+            ticket_number = item.get('ticketNumber')
+            if ticket_number in (None, ''):
+                continue
+
+            ticket_exists = OutpatientTicket.objects.filter(
+                facility_id=target_facility_id,
+                patient=target_patient,
+                ticket_number=ticket_number,
+                is_active=True,
+            ).exists()
+            if not ticket_exists:
+                raise serializers.ValidationError({
+                    'prescriptions': {
+                        index: {
+                            'ticketNumber': (
+                                'Ticket must belong to the visit patient and facility '
+                                'and be active.'
+                            )
+                        }
+                    }
+                })
 
         if self.instance is not None and 'facility_id' in attrs:
             if attrs['facility_id'] != self.instance.facility_id:
@@ -494,6 +525,7 @@ class PatientVisitSerializer(serializers.ModelSerializer):
                 'date': self._normalize_prescription_date(raw_item.get('date')),
                 'is_active': True,
             }
+            ticket_number = raw_item.get('ticketNumber')
 
             requested_id = (raw_item.get('id') or '').strip()
             prescription = None
@@ -534,7 +566,29 @@ class PatientVisitSerializer(serializers.ModelSerializer):
             else:
                 for field, value in payload.items():
                     setattr(prescription, field, value)
-                self._save_with_lock_retry(prescription)
+
+            if 'ticketNumber' in raw_item:
+                ticket = None
+                if ticket_number:
+                    ticket = OutpatientTicket.objects.filter(
+                        facility_id=visit.facility_id,
+                        patient=visit.patient,
+                        ticket_number=ticket_number,
+                        is_active=True,
+                    ).first()
+                    if ticket is None:
+                        raise serializers.ValidationError({
+                            'prescriptions': {
+                                index: {
+                                    'ticketNumber': (
+                                        'Ticket must belong to the visit patient and facility '
+                                        'and be active.'
+                                    )
+                                }
+                            }
+                        })
+                prescription.outpatient_ticket = ticket
+            self._save_with_lock_retry(prescription)
 
             resolved_id = prescription.prescription_id
             if resolved_id in seen_ids:
@@ -555,6 +609,13 @@ class PatientVisitSerializer(serializers.ModelSerializer):
                     'drugs': payload['drugs'],
                     'status': payload['status'],
                     'date': payload['date'].isoformat() if payload['date'] is not None else None,
+                    'ticketNumber': (
+                        prescription.outpatient_ticket.ticket_number
+                        if prescription.outpatient_ticket_id
+                        else None
+                    ),
+                    'dhaVerified': raw_item.get('dhaVerified', False),
+                    'dhaConsentToken': raw_item.get('dhaConsentToken', ''),
                 }
             )
 
@@ -1186,4 +1247,3 @@ class PatientVitalSerializer(serializers.ModelSerializer):
         else:
             data['capturedBy'] = None
         return data
-

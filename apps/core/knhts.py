@@ -1,5 +1,7 @@
 import requests
 from django.conf import settings
+from django.db.models import Q
+from knhts.models import KNHTSConcept
 
 
 class KnhtsServiceError(Exception):
@@ -62,6 +64,46 @@ def _concept(system, code, display):
         'system': system or 'KNHTS',
         'code': code,
     }
+
+
+def search_cached_concepts(search):
+    concepts = KNHTSConcept.objects.filter(is_active=True).filter(
+        Q(display__icontains=search)
+        | Q(code__icontains=search)
+        | Q(synonyms__icontains=search)
+    )
+    return [
+        _concept(concept.code_system, concept.code, concept.display)
+        for concept in concepts[:20]
+    ]
+
+
+def lookup_cached_concept(system, code):
+    concept = KNHTSConcept.objects.filter(
+        code_system=system,
+        code=code,
+        is_active=True,
+    ).first()
+    if not concept:
+        return None
+    return _concept(concept.code_system, concept.code, concept.display)
+
+
+def cache_concepts(concepts):
+    for concept in concepts:
+        code = concept.get('code')
+        if not code:
+            continue
+        system = concept.get('system') or 'KNHTS'
+        display = concept.get('display') or concept.get('text') or code
+        KNHTSConcept.objects.update_or_create(
+            code_system=system,
+            code=code,
+            defaults={
+                'display': display,
+                'is_active': True,
+            },
+        )
 
 
 def _parameter_value(parameters, name):

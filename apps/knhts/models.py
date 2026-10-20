@@ -25,7 +25,7 @@ class KNHTSConcept(models.Model):
         ('Anatomy', 'Anatomy'),
     )
 
-    code = models.CharField(max_length=100, unique=True)
+    code = models.CharField(max_length=100)
     code_system = models.CharField(max_length=50, choices=CODE_SYSTEM_CHOICES, default='KNHTS')
     display = models.CharField(max_length=500)
     domain = models.CharField(max_length=50, choices=DOMAIN_CHOICES, default='Diagnosis')
@@ -42,6 +42,12 @@ class KNHTSConcept(models.Model):
         indexes = [
             models.Index(fields=['code_system', 'domain']),
             models.Index(fields=['display']),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['code_system', 'code'],
+                name='knhts_concept_system_code_uniq',
+            ),
         ]
 
     def __str__(self):

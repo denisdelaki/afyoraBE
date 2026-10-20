@@ -8,6 +8,7 @@ import requests
 from unittest.mock import Mock, patch
 
 from core.models import Facility, FacilityOnboarding, User
+from knhts.models import KNHTSConcept
 
 
 class KnhtsIntegrationTests(TestCase):
@@ -46,6 +47,13 @@ class KnhtsIntegrationTests(TestCase):
 		self.assertEqual(result.status_code, 200)
 		self.assertEqual(result.data['data'][0]['code'], 'I10')
 		self.assertEqual(result.data['data'][0]['system'], 'ICD-10-WHO')
+		self.assertTrue(
+			KNHTSConcept.objects.filter(
+				code_system='ICD-10-WHO',
+				code='I10',
+				display='Essential hypertension',
+			).exists()
+		)
 		request.assert_called_once_with(
 			'https://knhts.example/fhir/ValueSet/$expand',
 			params={'filter': 'hypertension', 'count': 20},
@@ -55,6 +63,30 @@ class KnhtsIntegrationTests(TestCase):
 			},
 			timeout=4,
 		)
+
+	@override_settings(KNHTS_BASE_URL='https://knhts.example/fhir')
+	def test_cached_search_is_shared_between_users(self):
+		KNHTSConcept.objects.create(
+			code_system='ICD-10-WHO',
+			code='I10',
+			display='Essential hypertension',
+		)
+		other_user = User.objects.create_user(
+			username='other_knhts_user',
+			email='other-knhts@example.com',
+			password='StrongPass123!',
+			role='doctor',
+		)
+		other_client = APIClient()
+		other_client.force_authenticate(user=other_user)
+
+		with patch('core.knhts.requests.get') as upstream:
+			result = other_client.get('/api/knhts/concepts?search=hypertension')
+
+		self.assertEqual(result.status_code, 200)
+		self.assertEqual(result.data['source'], 'cache')
+		self.assertEqual(result.data['data'][0]['code'], 'I10')
+		upstream.assert_not_called()
 
 	@override_settings(
 		KNHTS_BASE_URL='https://knhts.example/fhir',

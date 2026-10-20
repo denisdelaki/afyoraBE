@@ -2,6 +2,7 @@ from django.test import TestCase
 from rest_framework.test import APIClient
 
 from core.models import Facility, User
+from pharmacy.models import Prescription
 from .models import OutpatientTicket, Patient, PatientVisit, PatientVital
 
 
@@ -182,6 +183,93 @@ class PatientVisitAPITests(TestCase):
 		self.assertEqual(response.data['doctor'], 'Dr. Chen')
 		self.assertEqual(response.data['patientId'], 'PAT0001')
 		self.assertEqual(response.data['diagnosisCode'], 'I10')
+
+	def test_visit_prescription_retains_ticket_and_dha_metadata(self):
+		ticket = OutpatientTicket.objects.create(
+			facility=self.facility,
+			patient=self.patient,
+			ticket_number='OP-20261018-001',
+		)
+		payload = {
+			'facilityId': self.facility.id,
+			'patientId': self.patient.patient_id,
+			'date': '2026-10-20',
+			'doctor': 'EMP002',
+			'diagnosis': 'Stomach ache',
+			'diagnosisCode': '271681002',
+			'diagnosisSystem': 'http://snomed.info/sct',
+			'diagnosisText': 'Stomach ache',
+			'prescriptions': [{
+				'ticketNumber': ticket.ticket_number,
+				'drugs': [{
+					'id': 'D002',
+					'name': 'amoxilin',
+					'quantity': 1,
+					'dosage': '399hj',
+				}],
+				'status': 'Pending',
+				'date': '2026-10-20',
+				'dhaVerified': False,
+				'dhaConsentToken': 'TOK-SHA-9912048',
+			}],
+			'amountBilled': '10.00',
+			'whatHappened': 'bmbbm',
+		}
+
+		response = self.client.post('/api/patients/visits/', payload, format='json')
+
+		self.assertEqual(response.status_code, 201, response.data)
+		prescription_data = response.data['prescriptions'][0]
+		self.assertEqual(prescription_data['ticketNumber'], ticket.ticket_number)
+		self.assertFalse(prescription_data['dhaVerified'])
+		self.assertEqual(prescription_data['dhaConsentToken'], 'TOK-SHA-9912048')
+		prescription = Prescription.objects.get(
+			facility=self.facility,
+			prescription_id=prescription_data['id'],
+		)
+		self.assertEqual(prescription.outpatient_ticket, ticket)
+
+		list_response = self.client.get(
+			f'/api/patients/visits/?facilityId={self.facility.id}&patientId={self.patient.patient_id}'
+		)
+		self.assertEqual(list_response.status_code, 200)
+		listed_prescription = list_response.data['results'][0]['prescriptions'][0]
+		self.assertEqual(listed_prescription['ticketNumber'], ticket.ticket_number)
+		self.assertFalse(listed_prescription['dhaVerified'])
+		self.assertEqual(listed_prescription['dhaConsentToken'], 'TOK-SHA-9912048')
+
+	def test_visit_rejects_prescription_ticket_for_another_patient(self):
+		other_patient = Patient.objects.create(
+			facility=self.facility,
+			patient_id='PAT0002',
+			first_name='Other',
+			last_name='Patient',
+		)
+		ticket = OutpatientTicket.objects.create(
+			facility=self.facility,
+			patient=other_patient,
+			ticket_number='OP-OTHER-001',
+		)
+		payload = {
+			'facilityId': self.facility.id,
+			'patientId': self.patient.patient_id,
+			'date': '2026-10-20',
+			'doctor': 'EMP002',
+			'diagnosis': 'Stomach ache',
+			'diagnosisCode': '271681002',
+			'diagnosisSystem': 'http://snomed.info/sct',
+			'prescriptions': [{
+				'ticketNumber': ticket.ticket_number,
+				'drugs': [],
+			}],
+			'amountBilled': '10.00',
+		}
+
+		response = self.client.post('/api/patients/visits/', payload, format='json')
+
+		self.assertEqual(response.status_code, 400)
+		self.assertIn('prescriptions', response.data)
+		self.assertEqual(PatientVisit.objects.count(), 0)
 
 	def test_create_patient_visit_requires_knhts_code_metadata(self):
 		payload = {
@@ -738,4 +826,3 @@ class PatientVitalAPITests(TestCase):
 		# Attempt GET with Facility 1 ID should be denied due to user facility mismatch
 		denied_response = self.client.get(f'/api/patients/vitals/?facilityId={self.facility1.id}')
 		self.assertEqual(denied_response.status_code, 403)
-
