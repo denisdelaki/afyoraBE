@@ -19,7 +19,8 @@ class EmployeeViewSet(viewsets.ModelViewSet):
 
 	permission_classes = [IsAuthenticated]
 	serializer_class = EmployeeSerializer
-	http_method_names = ['get', 'post', 'put', 'patch', 'head', 'options']
+	lookup_field = 'employee_id'
+	http_method_names = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options']
 	filterset_fields = ['role', 'department', 'status', 'shift']
 	search_fields = ['name', 'email', 'employee_id']
 	ordering = ['-created_at']
@@ -118,7 +119,7 @@ class EmployeeViewSet(viewsets.ModelViewSet):
 		)
 
 	@action(detail=True, methods=['post'])
-	def resend_credentials(self, request, pk=None):
+	def resend_credentials(self, request, employee_id=None):
 		"""Reset password to a temporary password and resend credentials email."""
 		employee = self.get_object()
 		email = (employee.email or '').strip().lower()

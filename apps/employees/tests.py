@@ -60,7 +60,7 @@ class EmployeeApiTests(APITestCase):
 
 		self.employee_two = Employee.objects.create(
 			facility=self.facility_two,
-			employee_id='EMP001',
+			employee_id='EMP002',
 			name='Bob Two',
 			role='Nurse',
 			department='ICU',
@@ -88,9 +88,35 @@ class EmployeeApiTests(APITestCase):
 	def test_cannot_retrieve_other_facility_employee(self):
 		self._authenticate(self.user_one)
 
-		response = self.client.get(f'/api/employees/{self.employee_two.id}/')
+		response = self.client.get(f'/api/employees/{self.employee_two.employee_id}/')
 
 		self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+	def test_partial_update_employee_by_employee_id(self):
+		self._authenticate(self.user_one)
+
+		response = self.client.patch(
+			f'/api/employees/{self.employee_one.employee_id}/',
+			{'name': 'Alice Updated'},
+			format='json',
+		)
+
+		self.assertEqual(response.status_code, status.HTTP_200_OK)
+		self.assertEqual(response.data['name'], 'Alice Updated')
+		self.employee_one.refresh_from_db()
+		self.assertEqual(self.employee_one.name, 'Alice Updated')
+
+	def test_delete_employee_by_employee_id(self):
+		self._authenticate(self.user_one)
+
+		response = self.client.delete(
+			f'/api/employees/{self.employee_one.employee_id}/'
+		)
+
+		self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+		self.assertFalse(
+			Employee.objects.filter(pk=self.employee_one.pk).exists()
+		)
 
 	def test_create_employee_is_attached_to_logged_in_facility(self):
 		self._authenticate(self.user_one)
@@ -120,7 +146,9 @@ class EmployeeApiTests(APITestCase):
 	def test_resend_credentials_sends_email(self):
 		self._authenticate(self.user_one)
 		with patch('employees.views.send_employee_credentials') as send_credentials:
-			response = self.client.post(f'/api/employees/{self.employee_one.id}/resend_credentials/')
+			response = self.client.post(
+				f'/api/employees/{self.employee_one.employee_id}/resend_credentials/'
+			)
 
 		self.assertEqual(response.status_code, status.HTTP_200_OK)
 		send_credentials.assert_called_once()
@@ -167,4 +195,3 @@ class EmployeeApiTests(APITestCase):
 		emp_by_name = Employee.objects.get(name='Pharmacist Staff Two')
 		self.assertEqual(emp_by_name.custom_role, custom_role)
 		self.assertEqual(emp_by_name.role, 'Senior Pharmacist')
-
